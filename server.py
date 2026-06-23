@@ -28,7 +28,7 @@ def get_via_scraperapi(target_url):
         "api_key": SCRAPERAPI_KEY,
         "url": target_url
     }
-    return requests.get(api_url, params=params, timeout=30)
+    return requests.get(api_url, params=params, timeout=70)
 
 def extract_first_price(price_text):
     matches = re.findall(r"[\d]{1,3}(?:,\d{3})*", price_text)
