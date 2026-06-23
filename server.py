@@ -34,9 +34,9 @@ def extract_first_price(price_text):
     
     def run_scraper():
 
-    all_results = []
+        all_results = []
 
-    # ---------- JUSTFONES ----------
+ # ---------- JUSTFONES ----------
     for page_num in range(1, 6):
 
         jf_url = (
@@ -166,8 +166,6 @@ def extract_first_price(price_text):
     else:
 
         print("No products collected")
-        
-
 def background_refresh_loop():
     while True:
         try:
