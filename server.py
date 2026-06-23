@@ -30,50 +30,143 @@ def extract_first_price(price_text):
     except ValueError:
         pass
     return None
+
     
+    def run_scraper():
+
+    all_results = []
+
     # ---------- JUSTFONES ----------
     for page_num in range(1, 6):
-        jf_url = "https://www.justfones.ng/smartphones.html" if page_num == 1 else f"https://www.justfones.ng/smartphones.html?p={page_num}"
+
+        jf_url = (
+            "https://www.justfones.ng/smartphones.html"
+            if page_num == 1
+            else f"https://www.justfones.ng/smartphones.html?p={page_num}"
+        )
+
         try:
-            response = requests.get(jf_url, headers=headers, timeout=10)
+
+            response = requests.get(
+                jf_url,
+                headers=headers,
+                timeout=10
+            )
+
             if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "html.parser")
-                products = soup.find_all("li", class_="item product product-item")
+
+                soup = BeautifulSoup(
+                    response.text,
+                    "html.parser"
+                )
+
+                products = soup.find_all(
+                    "li",
+                    class_="item product product-item"
+                )
+
                 for product in products:
-                    name_tag = product.find("a", class_="product-item-link")
-                    price_tag = product.find("span", class_="price")
-                    name = name_tag.text.strip() if name_tag else None
-                    price_text = price_tag.text.strip() if price_tag else None
+
+                    name_tag = product.find(
+                        "a",
+                        class_="product-item-link"
+                    )
+
+                    price_tag = product.find(
+                        "span",
+                        class_="price"
+                    )
+
+                    name = (
+                        name_tag.text.strip()
+                        if name_tag else None
+                    )
+
+                    price_text = (
+                        price_tag.text.strip()
+                        if price_tag else None
+                    )
+
                     if name and price_text:
-                        price_value = extract_first_price(price_text)
+
+                        price_value = extract_first_price(
+                            price_text
+                        )
+
                         if price_value:
-                            all_results.append({"name": name, "price": price_value, "store": "Justfones"})
+
+                            all_results.append({
+                                "name": name,
+                                "price": price_value,
+                                "store": "Justfones"
+                            })
+
         except Exception as e:
-            print(f"Justfones page {page_num} error: {e}")
+
+            print(
+                f"Justfones page {page_num} error: {e}"
+            )
+
         time.sleep(1.5)
 
     # ---------- SAVE ----------
     if all_results:
+
         seen = set()
         unique_results = []
+
         for item in all_results:
-            key = (item["store"], item["name"])
+
+            key = (
+                item["store"],
+                item["name"]
+            )
+
             if key not in seen:
                 seen.add(key)
                 unique_results.append(item)
-        unique_results.sort(key=lambda x: x["price"])
 
-        with open(CSV_FILE, "w", newline="", encoding="utf-8") as f:
+        unique_results.sort(
+            key=lambda x: x["price"]
+        )
+
+        with open(
+            CSV_FILE,
+            "w",
+            newline="",
+            encoding="utf-8"
+        ) as f:
+
             writer = csv.writer(f)
-            writer.writerow(["Store", "Product", "Price (NGN)", "Date Checked"])
-            today = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+            writer.writerow([
+                "Store",
+                "Product",
+                "Price (NGN)",
+                "Date Checked"
+            ])
+
+            today = datetime.now().strftime(
+                "%Y-%m-%d %H:%M"
+            )
+
             for item in unique_results:
-                writer.writerow([item["store"], item["name"], item["price"], today])
 
-        print(f"Scraper finished: saved {len(unique_results)} results")
+                writer.writerow([
+                    item["store"],
+                    item["name"],
+                    item["price"],
+                    today
+                ])
+
+        print(
+            f"Saved {len(unique_results)} products"
+        )
+
     else:
-        print("Scraper finished: no results collected")
 
+        print("No products collected")
+        
 
 def background_refresh_loop():
     while True:
@@ -239,6 +332,9 @@ def home():
 
 
 # Start the background scraper loop when the app starts
+if not os.path.exists(CSV_FILE):
+    run_scraper()
+    
 scraper_thread = threading.Thread(target=background_refresh_loop, daemon=True)
 scraper_thread.start()
 
