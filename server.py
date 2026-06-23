@@ -43,10 +43,12 @@ def run_scraper():
     for page_num in range(1, 6):
         jf_url = "https://www.justfones.ng/smartphones.html" if page_num == 1 else f"https://www.justfones.ng/smartphones.html?p={page_num}"
         try:
-            response = requests.get(jf_url, headers=headers, timeout=(5, 15))
-            print(f"JUSTFONES: page {page_num} status code = {response.status_code}")
+           response = requests.get(jf_url, headers=headers, timeout=(5, 15))
+            print(f"JUSTFONES: page {page_num} status code = {response.status_code}, response length = {len(response.text)}")
             if response.status_code == 200:
+                print(f"JUSTFONES: page {page_num} starting to parse HTML...")
                 soup = BeautifulSoup(response.text, "html.parser")
+                print(f"JUSTFONES: page {page_num} parsing done")
                 products = soup.find_all("li", class_="item product product-item")
                 print(f"JUSTFONES: page {page_num} found {len(products)} product cards")
                 for product in products:
