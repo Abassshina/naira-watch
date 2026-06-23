@@ -19,17 +19,6 @@ headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
-SCRAPERAPI_KEY = os.environ.get("SCRAPERAPI_KEY", "")
-
-def get_via_scraperapi(target_url):
-    """Routes a request through ScraperAPI's proxy to avoid IP blocks."""
-    api_url = "http://api.scraperapi.com"
-    params = {
-        "api_key": SCRAPERAPI_KEY,
-        "url": target_url
-    }
-    return requests.get(api_url, params=params, timeout=70)
-
 def extract_first_price(price_text):
     matches = re.findall(r"[\d]{1,3}(?:,\d{3})*", price_text)
     if not matches:
@@ -43,41 +32,7 @@ def extract_first_price(price_text):
         pass
     return None
 
-
-def run_scraper():
-    print("Scraper starting...")
-    all_results = []
-
-   # ---------- JUMIA ----------
-    print("JUMIA: starting scrape")
-    for page_num in range(1, 6):
-        jumia_url = "https://www.jumia.com.ng/smartphones/" if page_num == 1 else f"https://www.jumia.com.ng/smartphones/?page={page_num}"
-        print(f"JUMIA: fetching page {page_num} -> {jumia_url}")
-        try:
-            if SCRAPERAPI_KEY:
-                response = get_via_scraperapi(jumia_url)
-            else:
-                response = requests.get(jumia_url, headers=headers, timeout=(5, 8))
-            print(f"JUMIA: page {page_num} status code = {response.status_code}")
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "html.parser")
-                products = soup.find_all("article", class_="prd")
-                print(f"JUMIA: page {page_num} found {len(products)} product cards")
-                for product in products:
-                    name_tag = product.find("h3", class_="name")
-                    price_tag = product.find("div", class_="prc")
-                    name = name_tag.text.strip() if name_tag else None
-                    price_text = price_tag.text.strip() if price_tag else None
-                    if name and price_text:
-                        price_value = extract_first_price(price_text)
-                        if price_value:
-                            all_results.append({"name": name, "price": price_value, "store": "Jumia"})
-            else:
-                print(f"JUMIA: page {page_num} NOT OK, body preview: {response.text[:200]}")
-        except Exception as e:
-            print(f"JUMIA: page {page_num} EXCEPTION: {e}")
-        time.sleep(1.5)
-    print(f"JUMIA: finished, total Jumia results so far = {len([r for r in all_results if r['store']=='Jumia'])}")
+    
 
     # ---------- JUSTFONES ----------
     for page_num in range(1, 6):
