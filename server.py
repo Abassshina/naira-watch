@@ -54,7 +54,7 @@ def run_scraper():
         jumia_url = "https://www.jumia.com.ng/smartphones/" if page_num == 1 else f"https://www.jumia.com.ng/smartphones/?page={page_num}"
         print(f"JUMIA: fetching page {page_num} -> {jumia_url}")
         try:
-           if SCRAPERAPI_KEY:
+            if SCRAPERAPI_KEY:
                 response = get_via_scraperapi(jumia_url)
             else:
                 response = requests.get(jumia_url, headers=headers, timeout=(5, 8))
