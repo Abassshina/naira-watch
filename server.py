@@ -62,7 +62,35 @@ def run_scraper():
     print("Scraper starting...")
     all_results = []
 
-    # ---------- POINTEK (isolated test - Justfones temporarily disabled) ----------
+    # ---------- JUSTFONES ----------
+    print("JUSTFONES: starting scrape")
+    for page_num in range(1, 6):
+        jf_url = "https://www.justfones.ng/smartphones.html" if page_num == 1 else f"https://www.justfones.ng/smartphones.html?p={page_num}"
+        print(f"JUSTFONES: fetching page {page_num}...")
+        response = fetch_with_hard_timeout(jf_url, hard_seconds=20)
+        if response is not None:
+            print(f"JUSTFONES: page {page_num} status code = {response.status_code}, response length = {len(response.text)}")
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, "html.parser")
+                products = soup.find_all("li", class_="item product product-item")
+                print(f"JUSTFONES: page {page_num} found {len(products)} product cards")
+                for product in products:
+                    name_tag = product.find("a", class_="product-item-link")
+                    price_tag = product.find("span", class_="price")
+                    name = name_tag.text.strip() if name_tag else None
+                    price_text = price_tag.text.strip() if price_tag else None
+                    if name and price_text:
+                        price_value = extract_first_price(price_text)
+                        if price_value:
+                            all_results.append({"name": name, "price": price_value, "store": "Justfones"})
+            else:
+                print(f"JUSTFONES: page {page_num} NOT OK")
+        else:
+            print(f"JUSTFONES: page {page_num} skipped (timeout or error)")
+        time.sleep(1.5)
+    print(f"JUSTFONES: finished, total = {len([r for r in all_results if r['store'] == 'Justfones'])}")
+
+    # ---------- POINTEK ----------
     print("POINTEK: starting scrape")
     for page_num in range(1, 6):
         pk_url = "https://www.pointekonline.com/product-category/mobile-phones/" if page_num == 1 else f"https://www.pointekonline.com/product-category/mobile-phones/page/{page_num}/"
