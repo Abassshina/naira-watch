@@ -8,6 +8,7 @@ import threading
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 app = Flask(__name__)
 
@@ -34,6 +35,29 @@ def extract_first_price(price_text):
     return None
 
 
+def fetch_with_hard_timeout(url, hard_seconds=20):
+    """
+    Fetches a URL with an absolute hard ceiling on time spent.
+    Unlike requests' own timeout (which can occasionally fail to
+    trigger on certain hangs), this uses a separate worker thread
+    and will give up after `hard_seconds` no matter what.
+    Returns the response object, or None if it timed out/failed.
+    """
+    def do_request():
+        return requests.get(url, headers=headers, timeout=(5, 15))
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(do_request)
+        try:
+            return future.result(timeout=hard_seconds)
+        except FutureTimeoutError:
+            print(f"HARD TIMEOUT: {url} took longer than {hard_seconds}s, abandoning")
+            return None
+        except Exception as e:
+            print(f"FETCH ERROR: {url} -> {e}")
+            return None
+
+
 def run_scraper():
     print("Scraper starting...")
     all_results = []
@@ -42,13 +66,12 @@ def run_scraper():
     print("JUSTFONES: starting scrape")
     for page_num in range(1, 6):
         jf_url = "https://www.justfones.ng/smartphones.html" if page_num == 1 else f"https://www.justfones.ng/smartphones.html?p={page_num}"
-        try:
-            response = requests.get(jf_url, headers=headers, timeout=(5, 15))
+        print(f"JUSTFONES: fetching page {page_num}...")
+        response = fetch_with_hard_timeout(jf_url, hard_seconds=20)
+        if response is not None:
             print(f"JUSTFONES: page {page_num} status code = {response.status_code}, response length = {len(response.text)}")
             if response.status_code == 200:
-                print(f"JUSTFONES: page {page_num} starting to parse HTML...")
                 soup = BeautifulSoup(response.text, "html.parser")
-                print(f"JUSTFONES: page {page_num} parsing done")
                 products = soup.find_all("li", class_="item product product-item")
                 print(f"JUSTFONES: page {page_num} found {len(products)} product cards")
                 for product in products:
@@ -62,8 +85,8 @@ def run_scraper():
                             all_results.append({"name": name, "price": price_value, "store": "Justfones"})
             else:
                 print(f"JUSTFONES: page {page_num} NOT OK")
-        except Exception as e:
-            print(f"JUSTFONES: page {page_num} EXCEPTION: {e}")
+        else:
+            print(f"JUSTFONES: page {page_num} skipped (timeout or error)")
         time.sleep(1.5)
     print(f"JUSTFONES: finished, total = {len([r for r in all_results if r['store'] == 'Justfones'])}")
 
@@ -71,8 +94,9 @@ def run_scraper():
     print("POINTEK: starting scrape")
     for page_num in range(1, 6):
         pk_url = "https://www.pointekonline.com/product-category/mobile-phones/" if page_num == 1 else f"https://www.pointekonline.com/product-category/mobile-phones/page/{page_num}/"
-        try:
-            response = requests.get(pk_url, headers=headers, timeout=(5, 15))
+        print(f"POINTEK: fetching page {page_num}...")
+        response = fetch_with_hard_timeout(pk_url, hard_seconds=20)
+        if response is not None:
             print(f"POINTEK: page {page_num} status code = {response.status_code}")
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -89,8 +113,8 @@ def run_scraper():
                             all_results.append({"name": name, "price": price_value, "store": "Pointek"})
             else:
                 print(f"POINTEK: page {page_num} NOT OK")
-        except Exception as e:
-            print(f"POINTEK: page {page_num} EXCEPTION: {e}")
+        else:
+            print(f"POINTEK: page {page_num} skipped (timeout or error)")
         time.sleep(1.5)
     print(f"POINTEK: finished, total = {len([r for r in all_results if r['store'] == 'Pointek'])}")
 
