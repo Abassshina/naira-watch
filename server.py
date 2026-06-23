@@ -43,7 +43,7 @@ def run_scraper():
     for page_num in range(1, 6):
         jf_url = "https://www.justfones.ng/smartphones.html" if page_num == 1 else f"https://www.justfones.ng/smartphones.html?p={page_num}"
         try:
-           response = requests.get(jf_url, headers=headers, timeout=(5, 15))
+            response = requests.get(jf_url, headers=headers, timeout=(5, 15))
             print(f"JUSTFONES: page {page_num} status code = {response.status_code}, response length = {len(response.text)}")
             if response.status_code == 200:
                 print(f"JUSTFONES: page {page_num} starting to parse HTML...")
