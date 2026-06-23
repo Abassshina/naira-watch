@@ -19,6 +19,7 @@ headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
+
 def extract_first_price(price_text):
     matches = re.findall(r"[\d]{1,3}(?:,\d{3})*", price_text)
     if not matches:
@@ -32,141 +33,89 @@ def extract_first_price(price_text):
         pass
     return None
 
-    
-    def run_scraper():
 
-        all_results = []
+def run_scraper():
+    print("Scraper starting...")
+    all_results = []
 
- # ---------- JUSTFONES ----------
+    # ---------- JUSTFONES ----------
+    print("JUSTFONES: starting scrape")
     for page_num in range(1, 6):
-
-        jf_url = (
-            "https://www.justfones.ng/smartphones.html"
-            if page_num == 1
-            else f"https://www.justfones.ng/smartphones.html?p={page_num}"
-        )
-
+        jf_url = "https://www.justfones.ng/smartphones.html" if page_num == 1 else f"https://www.justfones.ng/smartphones.html?p={page_num}"
         try:
-
-            response = requests.get(
-                jf_url,
-                headers=headers,
-                timeout=10
-            )
-
+            response = requests.get(jf_url, headers=headers, timeout=(5, 15))
+            print(f"JUSTFONES: page {page_num} status code = {response.status_code}")
             if response.status_code == 200:
-
-                soup = BeautifulSoup(
-                    response.text,
-                    "html.parser"
-                )
-
-                products = soup.find_all(
-                    "li",
-                    class_="item product product-item"
-                )
-
+                soup = BeautifulSoup(response.text, "html.parser")
+                products = soup.find_all("li", class_="item product product-item")
+                print(f"JUSTFONES: page {page_num} found {len(products)} product cards")
                 for product in products:
-
-                    name_tag = product.find(
-                        "a",
-                        class_="product-item-link"
-                    )
-
-                    price_tag = product.find(
-                        "span",
-                        class_="price"
-                    )
-
-                    name = (
-                        name_tag.text.strip()
-                        if name_tag else None
-                    )
-
-                    price_text = (
-                        price_tag.text.strip()
-                        if price_tag else None
-                    )
-
+                    name_tag = product.find("a", class_="product-item-link")
+                    price_tag = product.find("span", class_="price")
+                    name = name_tag.text.strip() if name_tag else None
+                    price_text = price_tag.text.strip() if price_tag else None
                     if name and price_text:
-
-                        price_value = extract_first_price(
-                            price_text
-                        )
-
+                        price_value = extract_first_price(price_text)
                         if price_value:
-
-                            all_results.append({
-                                "name": name,
-                                "price": price_value,
-                                "store": "Justfones"
-                            })
-
+                            all_results.append({"name": name, "price": price_value, "store": "Justfones"})
+            else:
+                print(f"JUSTFONES: page {page_num} NOT OK")
         except Exception as e:
-
-            print(
-                f"Justfones page {page_num} error: {e}"
-            )
-
+            print(f"JUSTFONES: page {page_num} EXCEPTION: {e}")
         time.sleep(1.5)
+    print(f"JUSTFONES: finished, total = {len([r for r in all_results if r['store'] == 'Justfones'])}")
+
+    # ---------- POINTEK ----------
+    print("POINTEK: starting scrape")
+    for page_num in range(1, 6):
+        pk_url = "https://www.pointekonline.com/product-category/mobile-phones/" if page_num == 1 else f"https://www.pointekonline.com/product-category/mobile-phones/page/{page_num}/"
+        try:
+            response = requests.get(pk_url, headers=headers, timeout=(5, 15))
+            print(f"POINTEK: page {page_num} status code = {response.status_code}")
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, "html.parser")
+                products = soup.find_all("li", class_="product")
+                print(f"POINTEK: page {page_num} found {len(products)} product cards")
+                for product in products:
+                    name_tag = product.find(["h2", "h3"], class_="woocommerce-loop-product__title")
+                    price_tag = product.find("span", class_="price")
+                    name = name_tag.text.strip() if name_tag else None
+                    price_text = price_tag.text.strip() if price_tag else None
+                    if name and price_text:
+                        price_value = extract_first_price(price_text)
+                        if price_value:
+                            all_results.append({"name": name, "price": price_value, "store": "Pointek"})
+            else:
+                print(f"POINTEK: page {page_num} NOT OK")
+        except Exception as e:
+            print(f"POINTEK: page {page_num} EXCEPTION: {e}")
+        time.sleep(1.5)
+    print(f"POINTEK: finished, total = {len([r for r in all_results if r['store'] == 'Pointek'])}")
 
     # ---------- SAVE ----------
     if all_results:
-
         seen = set()
         unique_results = []
-
         for item in all_results:
-
-            key = (
-                item["store"],
-                item["name"]
-            )
-
+            key = (item["store"], item["name"])
             if key not in seen:
                 seen.add(key)
                 unique_results.append(item)
 
-        unique_results.sort(
-            key=lambda x: x["price"]
-        )
+        unique_results.sort(key=lambda x: x["price"])
 
-        with open(
-            CSV_FILE,
-            "w",
-            newline="",
-            encoding="utf-8"
-        ) as f:
-
+        with open(CSV_FILE, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-
-            writer.writerow([
-                "Store",
-                "Product",
-                "Price (NGN)",
-                "Date Checked"
-            ])
-
-            today = datetime.now().strftime(
-                "%Y-%m-%d %H:%M"
-            )
-
+            writer.writerow(["Store", "Product", "Price (NGN)", "Date Checked"])
+            today = datetime.now().strftime("%Y-%m-%d %H:%M")
             for item in unique_results:
+                writer.writerow([item["store"], item["name"], item["price"], today])
 
-                writer.writerow([
-                    item["store"],
-                    item["name"],
-                    item["price"],
-                    today
-                ])
-
-        print(
-            f"Saved {len(unique_results)} products"
-        )
-
+        print(f"Scraper finished: saved {len(unique_results)} results")
     else:
+        print("Scraper finished: no results collected")
 
-        print("No products collected")
+
 def background_refresh_loop():
     while True:
         try:
@@ -267,8 +216,8 @@ def home():
             .best {{ background: #eef2e8; }}
             .empty {{ padding: 40px; text-align: center; color: #999; }}
             .store-tag {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; color: white; }}
-            .tag-Jumia {{ background: #f68b1e; }}
             .tag-Justfones {{ background: #2563eb; }}
+            .tag-Pointek {{ background: #16a34a; }}
             .pagination {{ margin-top: 20px; text-align: center; }}
             .pagination a {{ display: inline-block; margin: 0 4px; padding: 8px 14px; background: white; color: #15140f; text-decoration: none; border: 1px solid #ddd; border-radius: 4px; }}
             .pagination a.active {{ background: #c4541f; color: white; border-color: #c4541f; }}
@@ -330,10 +279,9 @@ def home():
     return html
 
 
-# Start the background scraper loop when the app starts
-if not os.path.exists(CSV_FILE):
-    run_scraper()
-    
+# Start the background scraper loop when the app starts.
+# This runs in a separate thread so it never blocks Flask from
+# responding to Render's startup check.
 scraper_thread = threading.Thread(target=background_refresh_loop, daemon=True)
 scraper_thread.start()
 
