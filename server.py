@@ -31,9 +31,7 @@ def extract_first_price(price_text):
     except ValueError:
         pass
     return None
-
     
-
     # ---------- JUSTFONES ----------
     for page_num in range(1, 6):
         jf_url = "https://www.justfones.ng/smartphones.html" if page_num == 1 else f"https://www.justfones.ng/smartphones.html?p={page_num}"
