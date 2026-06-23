@@ -44,7 +44,7 @@ def run_scraper():
         jumia_url = "https://www.jumia.com.ng/smartphones/" if page_num == 1 else f"https://www.jumia.com.ng/smartphones/?page={page_num}"
         print(f"JUMIA: fetching page {page_num} -> {jumia_url}")
         try:
-            response = requests.get(jumia_url, headers=headers, timeout=10)
+            response = requests.get(jumia_url, headers=headers, timeout=(5, 8))
             print(f"JUMIA: page {page_num} status code = {response.status_code}")
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
