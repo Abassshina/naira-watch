@@ -38,14 +38,18 @@ def run_scraper():
     print("Scraper starting...")
     all_results = []
 
-    # ---------- JUMIA ----------
+   # ---------- JUMIA ----------
+    print("JUMIA: starting scrape")
     for page_num in range(1, 6):
         jumia_url = "https://www.jumia.com.ng/smartphones/" if page_num == 1 else f"https://www.jumia.com.ng/smartphones/?page={page_num}"
+        print(f"JUMIA: fetching page {page_num} -> {jumia_url}")
         try:
             response = requests.get(jumia_url, headers=headers, timeout=10)
+            print(f"JUMIA: page {page_num} status code = {response.status_code}")
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
                 products = soup.find_all("article", class_="prd")
+                print(f"JUMIA: page {page_num} found {len(products)} product cards")
                 for product in products:
                     name_tag = product.find("h3", class_="name")
                     price_tag = product.find("div", class_="prc")
@@ -55,9 +59,12 @@ def run_scraper():
                         price_value = extract_first_price(price_text)
                         if price_value:
                             all_results.append({"name": name, "price": price_value, "store": "Jumia"})
+            else:
+                print(f"JUMIA: page {page_num} NOT OK, body preview: {response.text[:200]}")
         except Exception as e:
-            print(f"Jumia page {page_num} error: {e}")
+            print(f"JUMIA: page {page_num} EXCEPTION: {e}")
         time.sleep(1.5)
+    print(f"JUMIA: finished, total Jumia results so far = {len([r for r in all_results if r['store']=='Jumia'])}")
 
     # ---------- JUSTFONES ----------
     for page_num in range(1, 6):
