@@ -53,18 +53,21 @@ KNOWN_BRANDS = ["apple", "iphone", "samsung", "galaxy", "tecno", "infinix", "xia
 
 
 def is_accessory(name):
-    lower = name.lower()
-    return any(signal in lower for signal in ACCESSORY_SIGNALS)
+    # If an accessory word appears AFTER a '+' sign, it's a bundled freebie
+    # (e.g. "Tablet + Free Case"), not the main product - only check the
+    # part of the name before the first '+'.
+    main_part = name.split("+")[0].lower()
+    return any(signal in main_part for signal in ACCESSORY_SIGNALS)
 
 
 def is_watch(name):
-    lower = name.lower()
-    return any(signal in lower for signal in WATCH_SIGNALS)
+    main_part = name.split("+")[0].lower()
+    return any(signal in main_part for signal in WATCH_SIGNALS)
 
 
 def is_audio(name):
-    lower = name.lower()
-    return any(signal in lower for signal in AUDIO_SIGNALS)
+    main_part = name.split("+")[0].lower()
+    return any(signal in main_part for signal in AUDIO_SIGNALS)
 
 
 def extract_brand(name):
