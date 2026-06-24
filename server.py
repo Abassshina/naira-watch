@@ -59,7 +59,15 @@ def extract_brand(name):
     return None
 
 
-def extract_model_key(name):
+def determine_category(name, page_category):
+    """
+    Returns the real category for a product, overriding the page's nominal
+    category (e.g. 'Phones') to 'Phone Accessories' when the product is
+    actually a case, pouch, charger, etc. that was just listed on that page.
+    """
+    if is_accessory(name):
+        return f"{page_category} Accessories" if page_category in ("Phones", "Laptops") else "Accessories"
+    return page_category
     if is_accessory(name):
         return None
     brand = extract_brand(name)
@@ -117,22 +125,24 @@ def fetch_with_hard_timeout(url, hard_seconds=20):
             return None
 
 
-def scrape_justfones_phones(all_results):
-    print("JUSTFONES PHONES: starting")
+def scrape_justfones_category(all_results, url_slug, category_label):
+    """Generic scraper for any Justfones (Magento) category page."""
+    tag = f"JUSTFONES {category_label.upper()}"
+    print(f"{tag}: starting")
     page_num = 1
     max_safety_pages = 40
     while page_num <= max_safety_pages:
-        url = "https://www.justfones.ng/smartphones.html" if page_num == 1 else f"https://www.justfones.ng/smartphones.html?p={page_num}"
-        print(f"JUSTFONES PHONES: fetching page {page_num}...")
+        url = f"https://www.justfones.ng/{url_slug}.html" if page_num == 1 else f"https://www.justfones.ng/{url_slug}.html?p={page_num}"
+        print(f"{tag}: fetching page {page_num}...")
         response = fetch_with_hard_timeout(url, hard_seconds=20)
         if response is not None:
-            print(f"JUSTFONES PHONES: page {page_num} status = {response.status_code}")
+            print(f"{tag}: page {page_num} status = {response.status_code}")
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
                 products = soup.find_all("li", class_="item product product-item")
-                print(f"JUSTFONES PHONES: page {page_num} found {len(products)} cards")
+                print(f"{tag}: page {page_num} found {len(products)} cards")
                 if len(products) == 0:
-                    print(f"JUSTFONES PHONES: page {page_num} empty, reached the end")
+                    print(f"{tag}: page {page_num} empty, reached the end")
                     break
                 for product in products:
                     name_tag = product.find("a", class_="product-item-link")
@@ -142,36 +152,38 @@ def scrape_justfones_phones(all_results):
                     if name and price_text:
                         price_value = extract_first_price(price_text)
                         if price_value:
-                            all_results.append({"name": name, "price": price_value, "store": "Justfones", "category": "Phones"})
+                            all_results.append({"name": name, "price": price_value, "store": "Justfones", "category": determine_category(name, category_label)})
             else:
-                print(f"JUSTFONES PHONES: page {page_num} not OK, stopping")
+                print(f"{tag}: page {page_num} not OK, stopping")
                 break
         else:
-            print(f"JUSTFONES PHONES: page {page_num} skipped (timeout), stopping")
+            print(f"{tag}: page {page_num} skipped (timeout), stopping")
             break
         page_num += 1
         time.sleep(1.5)
-    print(f"JUSTFONES PHONES: finished, total = {len([r for r in all_results if r['store']=='Justfones' and r['category']=='Phones'])}")
+    print(f"{tag}: finished, total = {len([r for r in all_results if r['store']=='Justfones' and r['category']==category_label])}")
 
 
-def scrape_pointek_phones(all_results):
-    print("POINTEK PHONES: starting")
+def scrape_pointek_category(all_results, url_slug, category_label):
+    """Generic scraper for any Pointek (WooCommerce) category page."""
+    tag = f"POINTEK {category_label.upper()}"
+    print(f"{tag}: starting")
     page_num = 1
     max_safety_pages = 40
     while page_num <= max_safety_pages:
-        url = "https://www.pointekonline.com/product-category/mobile-phones/" if page_num == 1 else f"https://www.pointekonline.com/product-category/mobile-phones/page/{page_num}/"
-        print(f"POINTEK PHONES: fetching page {page_num}...")
+        url = f"https://www.pointekonline.com/{url_slug}/" if page_num == 1 else f"https://www.pointekonline.com/{url_slug}/page/{page_num}/"
+        print(f"{tag}: fetching page {page_num}...")
         response = fetch_with_hard_timeout(url, hard_seconds=20)
         if response is not None:
-            print(f"POINTEK PHONES: page {page_num} status = {response.status_code}")
+            print(f"{tag}: page {page_num} status = {response.status_code}")
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
                 # Pointek's shop grid: each product is a <li> inside the products <ul>,
                 # containing one link with the product title text and a separate price line.
                 products = soup.select("ul.products > li")
-                print(f"POINTEK PHONES: page {page_num} found {len(products)} cards")
+                print(f"{tag}: page {page_num} found {len(products)} cards")
                 if len(products) == 0:
-                    print(f"POINTEK PHONES: page {page_num} empty, reached the end")
+                    print(f"{tag}: page {page_num} empty, reached the end")
                     break
                 for product in products:
                     # The product name sits in a link whose text is "Name ₦price" combined,
@@ -194,28 +206,30 @@ def scrape_pointek_phones(all_results):
                     if name and price_text and len(name) > 3:
                         price_value = extract_first_price(price_text)
                         if price_value:
-                            all_results.append({"name": name, "price": price_value, "store": "Pointek", "category": "Phones"})
+                            all_results.append({"name": name, "price": price_value, "store": "Pointek", "category": determine_category(name, category_label)})
             else:
-                print(f"POINTEK PHONES: page {page_num} not OK, stopping")
+                print(f"{tag}: page {page_num} not OK, stopping")
                 break
         else:
-            print(f"POINTEK PHONES: page {page_num} skipped (timeout), stopping")
+            print(f"{tag}: page {page_num} skipped (timeout), stopping")
             break
         page_num += 1
         time.sleep(1.5)
-    print(f"POINTEK PHONES: finished, total = {len([r for r in all_results if r['store']=='Pointek' and r['category']=='Phones'])}")
+    print(f"{tag}: finished, total = {len([r for r in all_results if r['store']=='Pointek' and r['category']==category_label])}")
 
 
-def scrape_phonemart_phones(all_results):
-    print("PHONEMART PHONES: starting")
+def scrape_phonemart_category(all_results, url_slug, category_label):
+    """Generic scraper for any PhoneMart (WoodMart theme) category page."""
+    tag = f"PHONEMART {category_label.upper()}"
+    print(f"{tag}: starting")
     page_num = 1
     max_safety_pages = 40
     while page_num <= max_safety_pages:
-        url = "https://www.phonemart.ng/product-category/phones/" if page_num == 1 else f"https://www.phonemart.ng/product-category/phones/page/{page_num}/"
-        print(f"PHONEMART PHONES: fetching page {page_num}...")
+        url = f"https://www.phonemart.ng/product-category/{url_slug}/" if page_num == 1 else f"https://www.phonemart.ng/product-category/{url_slug}/page/{page_num}/"
+        print(f"{tag}: fetching page {page_num}...")
         response = fetch_with_hard_timeout(url, hard_seconds=20)
         if response is not None:
-            print(f"PHONEMART PHONES: page {page_num} status = {response.status_code}")
+            print(f"{tag}: page {page_num} status = {response.status_code}")
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
                 # PhoneMart uses the WoodMart theme, which wraps each product in a
@@ -223,9 +237,9 @@ def scrape_phonemart_phones(all_results):
                 # standard WooCommerce themes. Match div tags with "product" as a
                 # standalone class word.
                 products = soup.find_all("div", class_=lambda c: c and "product" in c.split())
-                print(f"PHONEMART PHONES: page {page_num} found {len(products)} cards")
+                print(f"{tag}: page {page_num} found {len(products)} cards")
                 if len(products) == 0:
-                    print(f"PHONEMART PHONES: page {page_num} empty, reached the end")
+                    print(f"{tag}: page {page_num} empty, reached the end")
                     break
                 for product in products:
                     name_tag = product.find("h3") or product.find("h2")
@@ -242,25 +256,39 @@ def scrape_phonemart_phones(all_results):
                     if name and price_text and len(name) > 3:
                         price_value = extract_first_price(price_text)
                         if price_value:
-                            all_results.append({"name": name, "price": price_value, "store": "PhoneMart", "category": "Phones"})
+                            all_results.append({"name": name, "price": price_value, "store": "PhoneMart", "category": determine_category(name, category_label)})
             else:
-                print(f"PHONEMART PHONES: page {page_num} not OK, stopping")
+                print(f"{tag}: page {page_num} not OK, stopping")
                 break
         else:
-            print(f"PHONEMART PHONES: page {page_num} skipped (timeout), stopping")
+            print(f"{tag}: page {page_num} skipped (timeout), stopping")
             break
         page_num += 1
         time.sleep(1.5)
-    print(f"PHONEMART PHONES: finished, total = {len([r for r in all_results if r['store']=='PhoneMart' and r['category']=='Phones'])}")
+    print(f"{tag}: finished, total = {len([r for r in all_results if r['store']=='PhoneMart' and r['category']==category_label])}")
 
 
 def run_scraper():
     print("Scraper starting...")
     all_results = []
 
-    scrape_justfones_phones(all_results)
-    scrape_pointek_phones(all_results)
-    scrape_phonemart_phones(all_results)
+    # Justfones (Magento)
+    scrape_justfones_category(all_results, "smartphones", "Phones")
+    scrape_justfones_category(all_results, "laptops", "Laptops")
+    scrape_justfones_category(all_results, "tablets", "Tablets")
+    scrape_justfones_category(all_results, "smartwatches", "Watches")
+
+    # Pointek (WooCommerce)
+    scrape_pointek_category(all_results, "product-category/mobile-phones", "Phones")
+    scrape_pointek_category(all_results, "product-category/computers", "Laptops")
+    scrape_pointek_category(all_results, "product-category/tablets", "Tablets")
+    scrape_pointek_category(all_results, "product-category/accessories/smart-watch", "Watches")
+    scrape_pointek_category(all_results, "product-category/accessories", "Accessories")
+
+    # PhoneMart (WoodMart/WooCommerce)
+    scrape_phonemart_category(all_results, "phones", "Phones")
+    scrape_phonemart_category(all_results, "laptops", "Laptops")
+    scrape_phonemart_category(all_results, "accessories", "Accessories")
 
     # ---------- SAVE ----------
     if all_results:
