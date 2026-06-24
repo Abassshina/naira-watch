@@ -62,6 +62,34 @@ def run_scraper():
     print("Scraper starting...")
     all_results = []
 
+    # ---------- JUMIA ----------
+    print("JUMIA: starting scrape")
+    for page_num in range(1, 6):
+        jumia_url = "https://www.jumia.com.ng/smartphones/" if page_num == 1 else f"https://www.jumia.com.ng/smartphones/?page={page_num}"
+        print(f"JUMIA: fetching page {page_num}...")
+        response = fetch_with_hard_timeout(jumia_url, hard_seconds=20)
+        if response is not None:
+            print(f"JUMIA: page {page_num} status code = {response.status_code}")
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, "html.parser")
+                products = soup.find_all("article", class_="prd")
+                print(f"JUMIA: page {page_num} found {len(products)} product cards")
+                for product in products:
+                    name_tag = product.find("h3", class_="name")
+                    price_tag = product.find("div", class_="prc")
+                    name = name_tag.text.strip() if name_tag else None
+                    price_text = price_tag.text.strip() if price_tag else None
+                    if name and price_text:
+                        price_value = extract_first_price(price_text)
+                        if price_value:
+                            all_results.append({"name": name, "price": price_value, "store": "Jumia"})
+            else:
+                print(f"JUMIA: page {page_num} NOT OK")
+        else:
+            print(f"JUMIA: page {page_num} skipped (timeout or error)")
+        time.sleep(1.5)
+    print(f"JUMIA: finished, total = {len([r for r in all_results if r['store'] == 'Jumia'])}")
+
     # ---------- JUSTFONES ----------
     print("JUSTFONES: starting scrape")
     for page_num in range(1, 6):
@@ -242,6 +270,7 @@ def home():
             .best {{ background: #eef2e8; }}
             .empty {{ padding: 40px; text-align: center; color: #999; }}
             .store-tag {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; color: white; }}
+            .tag-Jumia {{ background: #f68b1e; }}
             .tag-Justfones {{ background: #2563eb; }}
             .tag-Pointek {{ background: #16a34a; }}
             .pagination {{ margin-top: 20px; text-align: center; }}
