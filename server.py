@@ -7,8 +7,8 @@ import time
 import threading
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -28,7 +28,7 @@ def extract_first_price(price_text):
     first_price_str = matches[0].replace(",", "")
     try:
         value = int(first_price_str)
-        if 1000 <= value <= 5_000_000:
+        if 1000 <= value <= 10_000_000:
             return value
     except ValueError:
         pass
@@ -36,13 +36,6 @@ def extract_first_price(price_text):
 
 
 def fetch_with_hard_timeout(url, hard_seconds=20):
-    """
-    Fetches a URL with an absolute hard ceiling on time spent.
-    Unlike requests' own timeout (which can occasionally fail to
-    trigger on certain hangs), this uses a separate worker thread
-    and will give up after `hard_seconds` no matter what.
-    Returns the response object, or None if it timed out/failed.
-    """
     def do_request():
         return requests.get(url, headers=headers, timeout=(5, 15))
 
@@ -58,50 +51,18 @@ def fetch_with_hard_timeout(url, hard_seconds=20):
             return None
 
 
-def run_scraper():
-    print("Scraper starting...")
-    all_results = []
-
-    # ---------- JUMIA ----------
-    print("JUMIA: starting scrape")
+def scrape_justfones_phones(all_results):
+    print("JUSTFONES PHONES: starting")
     for page_num in range(1, 6):
-        jumia_url = "https://www.jumia.com.ng/smartphones/" if page_num == 1 else f"https://www.jumia.com.ng/smartphones/?page={page_num}"
-        print(f"JUMIA: fetching page {page_num}...")
-        response = fetch_with_hard_timeout(jumia_url, hard_seconds=20)
+        url = "https://www.justfones.ng/smartphones.html" if page_num == 1 else f"https://www.justfones.ng/smartphones.html?p={page_num}"
+        print(f"JUSTFONES PHONES: fetching page {page_num}...")
+        response = fetch_with_hard_timeout(url, hard_seconds=20)
         if response is not None:
-            print(f"JUMIA: page {page_num} status code = {response.status_code}")
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "html.parser")
-                products = soup.find_all("article", class_="prd")
-                print(f"JUMIA: page {page_num} found {len(products)} product cards")
-                for product in products:
-                    name_tag = product.find("h3", class_="name")
-                    price_tag = product.find("div", class_="prc")
-                    name = name_tag.text.strip() if name_tag else None
-                    price_text = price_tag.text.strip() if price_tag else None
-                    if name and price_text:
-                        price_value = extract_first_price(price_text)
-                        if price_value:
-                            all_results.append({"name": name, "price": price_value, "store": "Jumia"})
-            else:
-                print(f"JUMIA: page {page_num} NOT OK")
-        else:
-            print(f"JUMIA: page {page_num} skipped (timeout or error)")
-        time.sleep(1.5)
-    print(f"JUMIA: finished, total = {len([r for r in all_results if r['store'] == 'Jumia'])}")
-
-    # ---------- JUSTFONES ----------
-    print("JUSTFONES: starting scrape")
-    for page_num in range(1, 6):
-        jf_url = "https://www.justfones.ng/smartphones.html" if page_num == 1 else f"https://www.justfones.ng/smartphones.html?p={page_num}"
-        print(f"JUSTFONES: fetching page {page_num}...")
-        response = fetch_with_hard_timeout(jf_url, hard_seconds=20)
-        if response is not None:
-            print(f"JUSTFONES: page {page_num} status code = {response.status_code}, response length = {len(response.text)}")
+            print(f"JUSTFONES PHONES: page {page_num} status = {response.status_code}")
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
                 products = soup.find_all("li", class_="item product product-item")
-                print(f"JUSTFONES: page {page_num} found {len(products)} product cards")
+                print(f"JUSTFONES PHONES: page {page_num} found {len(products)} cards")
                 for product in products:
                     name_tag = product.find("a", class_="product-item-link")
                     price_tag = product.find("span", class_="price")
@@ -110,48 +71,96 @@ def run_scraper():
                     if name and price_text:
                         price_value = extract_first_price(price_text)
                         if price_value:
-                            all_results.append({"name": name, "price": price_value, "store": "Justfones"})
-            else:
-                print(f"JUSTFONES: page {page_num} NOT OK")
+                            all_results.append({"name": name, "price": price_value, "store": "Justfones", "category": "Phones"})
         else:
-            print(f"JUSTFONES: page {page_num} skipped (timeout or error)")
+            print(f"JUSTFONES PHONES: page {page_num} skipped")
         time.sleep(1.5)
-    print(f"JUSTFONES: finished, total = {len([r for r in all_results if r['store'] == 'Justfones'])}")
+    print(f"JUSTFONES PHONES: finished, total = {len([r for r in all_results if r['store']=='Justfones' and r['category']=='Phones'])}")
 
-    # ---------- POINTEK ----------
-    print("POINTEK: starting scrape")
+
+def scrape_pointek_phones(all_results):
+    print("POINTEK PHONES: starting")
     for page_num in range(1, 6):
-        pk_url = "https://www.pointekonline.com/product-category/mobile-phones/" if page_num == 1 else f"https://www.pointekonline.com/product-category/mobile-phones/page/{page_num}/"
-        print(f"POINTEK: fetching page {page_num}...")
-        response = fetch_with_hard_timeout(pk_url, hard_seconds=20)
+        url = "https://www.pointekonline.com/product-category/mobile-phones/" if page_num == 1 else f"https://www.pointekonline.com/product-category/mobile-phones/page/{page_num}/"
+        print(f"POINTEK PHONES: fetching page {page_num}...")
+        response = fetch_with_hard_timeout(url, hard_seconds=20)
         if response is not None:
-            print(f"POINTEK: page {page_num} status code = {response.status_code}")
+            print(f"POINTEK PHONES: page {page_num} status = {response.status_code}")
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
-                products = soup.find_all("li", class_="product")
-                print(f"POINTEK: page {page_num} found {len(products)} product cards")
+                # Pointek's shop grid: each product is a <li> inside the products <ul>,
+                # containing one link with the product title text and a separate price line.
+                products = soup.select("ul.products > li")
+                print(f"POINTEK PHONES: page {page_num} found {len(products)} cards")
                 for product in products:
-                    name_tag = product.find(["h2", "h3"], class_="woocommerce-loop-product__title")
-                    price_tag = product.find("span", class_="price")
-                    name = name_tag.text.strip() if name_tag else None
-                    price_text = price_tag.text.strip() if price_tag else None
+                    # The product name sits in a link whose text is "Name ₦price" combined,
+                    # but there's also a dedicated price element we can use instead.
+                    price_tag = product.find(class_=re.compile(r"^(price|woocommerce-Price-amount)"))
+                    title_tag = product.find("h2") or product.find("h3")
+                    name = None
+                    if title_tag:
+                        name = title_tag.get_text(strip=True)
+                    if not name:
+                        # Check all product links - the image link has no text,
+                        # but the title link does. Use the first one with real text.
+                        link_tags = product.find_all("a", href=re.compile(r"/product/"))
+                        for link_tag in link_tags:
+                            full_text = link_tag.get_text(strip=True)
+                            if full_text:
+                                name = re.split(r"₦", full_text)[0].strip()
+                                break
+                    price_text = price_tag.get_text(strip=True) if price_tag else None
+                    if name and price_text and len(name) > 3:
+                        price_value = extract_first_price(price_text)
+                        if price_value:
+                            all_results.append({"name": name, "price": price_value, "store": "Pointek", "category": "Phones"})
+        else:
+            print(f"POINTEK PHONES: page {page_num} skipped")
+        time.sleep(1.5)
+    print(f"POINTEK PHONES: finished, total = {len([r for r in all_results if r['store']=='Pointek' and r['category']=='Phones'])}")
+
+
+def scrape_phonemart_phones(all_results):
+    print("PHONEMART PHONES: starting")
+    for page_num in range(1, 6):
+        url = "https://www.phonemart.ng/product-category/phones/" if page_num == 1 else f"https://www.phonemart.ng/product-category/phones/page/{page_num}/"
+        print(f"PHONEMART PHONES: fetching page {page_num}...")
+        response = fetch_with_hard_timeout(url, hard_seconds=20)
+        if response is not None:
+            print(f"PHONEMART PHONES: page {page_num} status = {response.status_code}")
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, "html.parser")
+                products = soup.find_all("li", class_=re.compile(r"\bproduct\b"))
+                print(f"PHONEMART PHONES: page {page_num} found {len(products)} cards")
+                for product in products:
+                    name_tag = product.find("h3") or product.find("h2")
+                    price_tag = product.find(class_=re.compile(r"^(price|woocommerce-Price-amount)"))
+                    name = name_tag.get_text(strip=True) if name_tag else None
+                    price_text = price_tag.get_text(strip=True) if price_tag else None
                     if name and price_text:
                         price_value = extract_first_price(price_text)
                         if price_value:
-                            all_results.append({"name": name, "price": price_value, "store": "Pointek"})
-            else:
-                print(f"POINTEK: page {page_num} NOT OK")
+                            all_results.append({"name": name, "price": price_value, "store": "PhoneMart", "category": "Phones"})
         else:
-            print(f"POINTEK: page {page_num} skipped (timeout or error)")
+            print(f"PHONEMART PHONES: page {page_num} skipped")
         time.sleep(1.5)
-    print(f"POINTEK: finished, total = {len([r for r in all_results if r['store'] == 'Pointek'])}")
+    print(f"PHONEMART PHONES: finished, total = {len([r for r in all_results if r['store']=='PhoneMart' and r['category']=='Phones'])}")
+
+
+def run_scraper():
+    print("Scraper starting...")
+    all_results = []
+
+    scrape_justfones_phones(all_results)
+    scrape_pointek_phones(all_results)
+    scrape_phonemart_phones(all_results)
 
     # ---------- SAVE ----------
     if all_results:
         seen = set()
         unique_results = []
         for item in all_results:
-            key = (item["store"], item["name"])
+            key = (item["store"], item["category"], item["name"])
             if key not in seen:
                 seen.add(key)
                 unique_results.append(item)
@@ -160,10 +169,10 @@ def run_scraper():
 
         with open(CSV_FILE, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["Store", "Product", "Price (NGN)", "Date Checked"])
+            writer.writerow(["Store", "Category", "Product", "Price (NGN)", "Date Checked"])
             today = datetime.now().strftime("%Y-%m-%d %H:%M")
             for item in unique_results:
-                writer.writerow([item["store"], item["name"], item["price"], today])
+                writer.writerow([item["store"], item["category"], item["name"], item["price"], today])
 
         print(f"Scraper finished: saved {len(unique_results)} results")
     else:
@@ -189,15 +198,20 @@ def home():
             rows = list(reader)
 
     all_stores = sorted(set(r["Store"] for r in rows))
+    all_categories = sorted(set(r["Category"] for r in rows)) if rows else []
 
     search_query = request.args.get("search", "").strip().lower()
     max_price = request.args.get("max_price", "").strip()
     selected_stores = request.args.getlist("store")
+    selected_category = request.args.get("category", "").strip()
 
     if not selected_stores:
         selected_stores = all_stores
 
     filtered_rows = [r for r in rows if r["Store"] in selected_stores]
+
+    if selected_category:
+        filtered_rows = [r for r in filtered_rows if r["Category"] == selected_category]
 
     if search_query:
         filtered_rows = [r for r in filtered_rows if search_query in r["Product"].lower()]
@@ -225,10 +239,13 @@ def home():
     end = start + ITEMS_PER_PAGE
     page_rows = filtered_rows[start:end]
 
-    def page_link(p):
+    def page_link(p, category=None):
         params = [f"page={p}"]
         for s in selected_stores:
             params.append(f"store={s}")
+        cat = category if category is not None else selected_category
+        if cat:
+            params.append(f"category={cat}")
         if search_query:
             params.append(f"search={search_query}")
         if max_price:
@@ -244,58 +261,84 @@ def home():
         </label>
         """
 
+    category_links = '<a class="cat-link {}" href="{}">All</a>'.format(
+        "active" if not selected_category else "", page_link(1, category="")
+    )
+    for c in all_categories:
+        active = "active" if c == selected_category else ""
+        count = len([r for r in rows if r["Category"] == c and r["Store"] in selected_stores])
+        category_links += f'<a class="cat-link {active}" href="{page_link(1, category=c)}">{c} <span class="cat-count">{count}</span></a>'
+
     html = f"""
     <html>
     <head>
-        <title>NairaWatch — Live Price Tracker</title>
+        <title>NairaWatch — Price Intelligence</title>
         <style>
-            body {{ font-family: Arial, sans-serif; background: #f6f1e4; margin: 0; padding: 30px; }}
-            h1 {{ color: #c4541f; }}
-            .subtitle {{ color: #666; margin-bottom: 20px; font-size: 14px; }}
-            .filters {{ background: white; padding: 16px; border-radius: 6px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
-            .filter-row {{ display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }}
-            .filters input[type="text"], .filters input[type="number"] {{ padding: 9px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }}
+            * {{ box-sizing: border-box; }}
+            body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f8; margin: 0; color: #1a2332; }}
+            .topbar {{ background: #0f1b2d; padding: 18px 32px; display: flex; justify-content: space-between; align-items: center; }}
+            .topbar .brand {{ color: #fff; font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }}
+            .topbar .brand span {{ color: #18b894; }}
+            .topbar .tagline {{ color: #8a99ab; font-size: 12px; }}
+            .layout {{ display: flex; max-width: 1400px; margin: 0 auto; }}
+            .sidebar {{ width: 220px; background: #fff; min-height: calc(100vh - 60px); padding: 24px 0; border-right: 1px solid #e3e8ee; }}
+            .sidebar h4 {{ font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a99ab; padding: 0 20px; margin-bottom: 10px; }}
+            .cat-link {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; color: #3c4a5c; text-decoration: none; font-size: 14px; border-left: 3px solid transparent; }}
+            .cat-link:hover {{ background: #f4f6f8; }}
+            .cat-link.active {{ background: #eef9f6; color: #0f1b2d; font-weight: 600; border-left-color: #18b894; }}
+            .cat-count {{ font-size: 11px; color: #8a99ab; background: #f0f2f5; padding: 1px 7px; border-radius: 10px; }}
+            .cat-link.active .cat-count {{ background: #d7f0ea; color: #0d7c66; }}
+            .main {{ flex: 1; padding: 28px 32px; }}
+            .filters {{ background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; padding: 16px 18px; margin-bottom: 20px; }}
+            .filter-row {{ display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }}
+            .filters input[type="text"], .filters input[type="number"] {{ padding: 9px 12px; border: 1px solid #d4dce4; border-radius: 5px; font-size: 14px; }}
             .filters input[name="search"] {{ flex: 1; min-width: 200px; }}
-            .filters input[name="max_price"] {{ width: 160px; }}
-            .store-row {{ display: flex; gap: 16px; flex-wrap: wrap; align-items: center; padding-top: 8px; border-top: 1px solid #eee; }}
-            .store-check {{ font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer; }}
-            .store-check input {{ width: 16px; height: 16px; cursor: pointer; }}
-            .filters button {{ padding: 9px 18px; background: #c4541f; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }}
-            .filters a.clear {{ color: #888; text-decoration: none; font-size: 13px; padding: 9px 6px; }}
-            table {{ width: 100%; border-collapse: collapse; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }}
-            th {{ background: #15140f; color: white; padding: 12px; text-align: left; }}
-            td {{ padding: 12px; border-bottom: 1px solid #eee; }}
-            tr:hover {{ background: #f9f5ea; }}
-            .price {{ font-weight: bold; color: #3c5a40; }}
-            .best {{ background: #eef2e8; }}
-            .empty {{ padding: 40px; text-align: center; color: #999; }}
-            .store-tag {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; color: white; }}
-            .tag-Jumia {{ background: #f68b1e; }}
+            .filters input[name="max_price"] {{ width: 150px; }}
+            .filters button {{ padding: 9px 18px; background: #0d7c66; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: 600; }}
+            .filters a.clear {{ color: #8a99ab; text-decoration: none; font-size: 13px; }}
+            .store-row {{ display: flex; gap: 16px; flex-wrap: wrap; align-items: center; padding-top: 10px; border-top: 1px solid #eef1f4; }}
+            .store-check {{ font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; color: #3c4a5c; cursor: pointer; }}
+            table {{ width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; overflow: hidden; }}
+            th {{ background: #0f1b2d; color: #fff; padding: 12px 16px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }}
+            td {{ padding: 13px 16px; border-bottom: 1px solid #eef1f4; font-size: 14px; }}
+            tr:hover td {{ background: #fafbfc; }}
+            .price {{ font-weight: 700; color: #0d7c66; }}
+            .best {{ background: #eef9f6; }}
+            .empty {{ padding: 50px; text-align: center; color: #8a99ab; background: #fff; border-radius: 8px; }}
+            .store-tag {{ display: inline-block; padding: 3px 9px; border-radius: 4px; font-size: 11px; font-weight: 700; color: white; }}
             .tag-Justfones {{ background: #2563eb; }}
             .tag-Pointek {{ background: #16a34a; }}
+            .tag-PhoneMart {{ background: #d97706; }}
             .pagination {{ margin-top: 20px; text-align: center; }}
-            .pagination a {{ display: inline-block; margin: 0 4px; padding: 8px 14px; background: white; color: #15140f; text-decoration: none; border: 1px solid #ddd; border-radius: 4px; }}
-            .pagination a.active {{ background: #c4541f; color: white; border-color: #c4541f; }}
-            .pagination a:hover {{ background: #eee; }}
-            .count {{ text-align: center; color: #888; font-size: 13px; margin-top: 10px; }}
+            .pagination a {{ display: inline-block; margin: 0 3px; padding: 7px 13px; background: white; color: #3c4a5c; text-decoration: none; border: 1px solid #d4dce4; border-radius: 5px; font-size: 13px; }}
+            .pagination a.active {{ background: #0d7c66; color: white; border-color: #0d7c66; }}
+            .count {{ text-align: center; color: #8a99ab; font-size: 13px; margin-top: 12px; }}
         </style>
     </head>
     <body>
-        <h1>NairaWatch</h1>
-        <div class="subtitle">Live prices pulled by your scraper — {len(rows)} phones total across {len(all_stores)} stores — auto-refreshes every 4 hours</div>
-
-        <form class="filters" method="get" action="/">
-            <div class="filter-row">
-                <input type="text" name="search" placeholder="Search e.g. Samsung, Tecno, iPhone..." value="{search_query}">
-                <input type="number" name="max_price" placeholder="Max price (₦)" value="{max_price}">
-                <button type="submit">Apply</button>
-                <a class="clear" href="/">Clear all</a>
+        <div class="topbar">
+            <div class="brand">Naira<span>Watch</span></div>
+            <div class="tagline">{len(rows)} products tracked across {len(all_stores)} stores — refreshes every 4 hours</div>
+        </div>
+        <div class="layout">
+            <div class="sidebar">
+                <h4>Categories</h4>
+                {category_links}
             </div>
-            <div class="store-row">
-                <span style="font-size:13px; color:#888;">Compare stores:</span>
-                {store_checkboxes}
-            </div>
-        </form>
+            <div class="main">
+                <form class="filters" method="get" action="/">
+                    <input type="hidden" name="category" value="{selected_category}">
+                    <div class="filter-row">
+                        <input type="text" name="search" placeholder="Search products..." value="{search_query}">
+                        <input type="number" name="max_price" placeholder="Max price (₦)" value="{max_price}">
+                        <button type="submit">Apply</button>
+                        <a class="clear" href="/">Clear</a>
+                    </div>
+                    <div class="store-row">
+                        <span style="font-size:13px; color:#8a99ab;">Stores:</span>
+                        {store_checkboxes}
+                    </div>
+                </form>
     """
 
     if page_rows:
@@ -324,19 +367,16 @@ def home():
             html += f'<a href="{page_link(current_page + 1)}">Next &raquo;</a>'
         html += '</div>'
 
-        html += f'<div class="count">Page {current_page} of {total_pages} — showing {len(page_rows)} of {total_items} matching phones</div>'
+        html += f'<div class="count">Page {current_page} of {total_pages} — {total_items} matching products</div>'
     elif not rows:
-        html += '<div class="empty">First scrape is running now — this can take 1-2 minutes. Refresh this page shortly.</div>'
+        html += '<div class="empty">First scrape is running — this can take a couple of minutes. Refresh shortly.</div>'
     else:
-        html += '<div class="empty">No phones match your filters. Try selecting a store or clearing filters.</div>'
+        html += '<div class="empty">No products match your filters.</div>'
 
-    html += "</body></html>"
+    html += "</div></div></body></html>"
     return html
 
 
-# Start the background scraper loop when the app starts.
-# This runs in a separate thread so it never blocks Flask from
-# responding to Render's startup check.
 scraper_thread = threading.Thread(target=background_refresh_loop, daemon=True)
 scraper_thread.start()
 
