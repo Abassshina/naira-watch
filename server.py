@@ -132,6 +132,9 @@ def scrape_phonemart_phones(all_results):
                 soup = BeautifulSoup(response.text, "html.parser")
                 products = soup.find_all("li", class_=re.compile(r"\bproduct\b"))
                 print(f"PHONEMART PHONES: page {page_num} found {len(products)} cards")
+                if len(products) == 0 and page_num == 1:
+                    print("PHONEMART DEBUG RAW HTML SNIPPET:")
+                    print(response.text[15000:18000])
                 for product in products:
                     name_tag = product.find("h3") or product.find("h2")
                     price_tag = product.find(class_=re.compile(r"^(price|woocommerce-Price-amount)"))
