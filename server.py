@@ -53,7 +53,9 @@ def fetch_with_hard_timeout(url, hard_seconds=20):
 
 def scrape_justfones_phones(all_results):
     print("JUSTFONES PHONES: starting")
-    for page_num in range(1, 6):
+    page_num = 1
+    max_safety_pages = 40
+    while page_num <= max_safety_pages:
         url = "https://www.justfones.ng/smartphones.html" if page_num == 1 else f"https://www.justfones.ng/smartphones.html?p={page_num}"
         print(f"JUSTFONES PHONES: fetching page {page_num}...")
         response = fetch_with_hard_timeout(url, hard_seconds=20)
@@ -63,6 +65,9 @@ def scrape_justfones_phones(all_results):
                 soup = BeautifulSoup(response.text, "html.parser")
                 products = soup.find_all("li", class_="item product product-item")
                 print(f"JUSTFONES PHONES: page {page_num} found {len(products)} cards")
+                if len(products) == 0:
+                    print(f"JUSTFONES PHONES: page {page_num} empty, reached the end")
+                    break
                 for product in products:
                     name_tag = product.find("a", class_="product-item-link")
                     price_tag = product.find("span", class_="price")
@@ -72,15 +77,22 @@ def scrape_justfones_phones(all_results):
                         price_value = extract_first_price(price_text)
                         if price_value:
                             all_results.append({"name": name, "price": price_value, "store": "Justfones", "category": "Phones"})
+            else:
+                print(f"JUSTFONES PHONES: page {page_num} not OK, stopping")
+                break
         else:
-            print(f"JUSTFONES PHONES: page {page_num} skipped")
+            print(f"JUSTFONES PHONES: page {page_num} skipped (timeout), stopping")
+            break
+        page_num += 1
         time.sleep(1.5)
     print(f"JUSTFONES PHONES: finished, total = {len([r for r in all_results if r['store']=='Justfones' and r['category']=='Phones'])}")
 
 
 def scrape_pointek_phones(all_results):
     print("POINTEK PHONES: starting")
-    for page_num in range(1, 6):
+    page_num = 1
+    max_safety_pages = 40
+    while page_num <= max_safety_pages:
         url = "https://www.pointekonline.com/product-category/mobile-phones/" if page_num == 1 else f"https://www.pointekonline.com/product-category/mobile-phones/page/{page_num}/"
         print(f"POINTEK PHONES: fetching page {page_num}...")
         response = fetch_with_hard_timeout(url, hard_seconds=20)
@@ -92,6 +104,9 @@ def scrape_pointek_phones(all_results):
                 # containing one link with the product title text and a separate price line.
                 products = soup.select("ul.products > li")
                 print(f"POINTEK PHONES: page {page_num} found {len(products)} cards")
+                if len(products) == 0:
+                    print(f"POINTEK PHONES: page {page_num} empty, reached the end")
+                    break
                 for product in products:
                     # The product name sits in a link whose text is "Name ₦price" combined,
                     # but there's also a dedicated price element we can use instead.
@@ -114,15 +129,22 @@ def scrape_pointek_phones(all_results):
                         price_value = extract_first_price(price_text)
                         if price_value:
                             all_results.append({"name": name, "price": price_value, "store": "Pointek", "category": "Phones"})
+            else:
+                print(f"POINTEK PHONES: page {page_num} not OK, stopping")
+                break
         else:
-            print(f"POINTEK PHONES: page {page_num} skipped")
+            print(f"POINTEK PHONES: page {page_num} skipped (timeout), stopping")
+            break
+        page_num += 1
         time.sleep(1.5)
     print(f"POINTEK PHONES: finished, total = {len([r for r in all_results if r['store']=='Pointek' and r['category']=='Phones'])}")
 
 
 def scrape_phonemart_phones(all_results):
     print("PHONEMART PHONES: starting")
-    for page_num in range(1, 6):
+    page_num = 1
+    max_safety_pages = 40
+    while page_num <= max_safety_pages:
         url = "https://www.phonemart.ng/product-category/phones/" if page_num == 1 else f"https://www.phonemart.ng/product-category/phones/page/{page_num}/"
         print(f"PHONEMART PHONES: fetching page {page_num}...")
         response = fetch_with_hard_timeout(url, hard_seconds=20)
@@ -136,6 +158,9 @@ def scrape_phonemart_phones(all_results):
                 # standalone class word.
                 products = soup.find_all("div", class_=lambda c: c and "product" in c.split())
                 print(f"PHONEMART PHONES: page {page_num} found {len(products)} cards")
+                if len(products) == 0:
+                    print(f"PHONEMART PHONES: page {page_num} empty, reached the end")
+                    break
                 for product in products:
                     name_tag = product.find("h3") or product.find("h2")
                     price_tag = product.find(class_=re.compile(r"^(price|woocommerce-Price-amount)"))
@@ -152,8 +177,13 @@ def scrape_phonemart_phones(all_results):
                         price_value = extract_first_price(price_text)
                         if price_value:
                             all_results.append({"name": name, "price": price_value, "store": "PhoneMart", "category": "Phones"})
+            else:
+                print(f"PHONEMART PHONES: page {page_num} not OK, stopping")
+                break
         else:
-            print(f"PHONEMART PHONES: page {page_num} skipped")
+            print(f"PHONEMART PHONES: page {page_num} skipped (timeout), stopping")
+            break
+        page_num += 1
         time.sleep(1.5)
     print(f"PHONEMART PHONES: finished, total = {len([r for r in all_results if r['store']=='PhoneMart' and r['category']=='Phones'])}")
 
