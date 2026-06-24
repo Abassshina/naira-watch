@@ -134,7 +134,13 @@ def scrape_phonemart_phones(all_results):
                 print(f"PHONEMART PHONES: page {page_num} found {len(products)} cards")
                 if len(products) == 0 and page_num == 1:
                     print("PHONEMART DEBUG RAW HTML SNIPPET:")
-                    print(response.text[15000:18000])
+                    # Find where the actual product price text appears and show HTML around it
+                    idx = response.text.find("woocommerce-Price-amount")
+                    if idx == -1:
+                        idx = response.text.find("add-to-cart")
+                    if idx == -1:
+                        idx = 30000
+                    print(response.text[max(0, idx - 1500):idx + 500])
                 for product in products:
                     name_tag = product.find("h3") or product.find("h2")
                     price_tag = product.find(class_=re.compile(r"^(price|woocommerce-Price-amount)"))
