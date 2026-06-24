@@ -134,14 +134,16 @@ def scrape_phonemart_phones(all_results):
                 print(f"PHONEMART PHONES: page {page_num} found {len(products)} cards")
                 if len(products) == 0 and page_num == 1:
                     print("PHONEMART DEBUG RAW HTML SNIPPET:")
-                    # The first match is usually the header cart widget - skip past it
-                    first_idx = response.text.find("woocommerce-Price-amount")
-                    idx = response.text.find("woocommerce-Price-amount", first_idx + 200)
+                    total_price_matches = response.text.count("woocommerce-Price-amount")
+                    print(f"PHONEMART DEBUG: total price-amount occurrences on page = {total_price_matches}")
+                    # Try to find the actual shop loop container, which WooCommerce
+                    # themes almost always wrap in a element with 'shop' or 'products' in its id/class
+                    idx = response.text.find('class="products')
                     if idx == -1:
-                        idx = response.text.find("add_to_cart")
+                        idx = response.text.find("id=\"main\"")
                     if idx == -1:
-                        idx = 40000
-                    print(response.text[max(0, idx - 2000):idx + 500])
+                        idx = len(response.text) // 2
+                    print(response.text[idx:idx + 2500])
                 for product in products:
                     name_tag = product.find("h3") or product.find("h2")
                     price_tag = product.find(class_=re.compile(r"^(price|woocommerce-Price-amount)"))
