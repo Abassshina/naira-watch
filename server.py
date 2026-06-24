@@ -10,6 +10,8 @@ from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime
 
+from database import initialize_database
+
 app = Flask(__name__)
 
 ITEMS_PER_PAGE = 20
@@ -643,7 +645,12 @@ def home():
     return html
 
 
-scraper_thread = threading.Thread(target=background_refresh_loop, daemon=True)
+initialize_database()
+
+scraper_thread = threading.Thread(
+    target=background_refresh_loop,
+    daemon=True
+)
 scraper_thread.start()
 
 if __name__ == "__main__":
