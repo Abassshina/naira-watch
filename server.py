@@ -37,8 +37,15 @@ def extract_first_price(price_text):
 
 # ---------- BRAND & MODEL GROUPING (tested against real product names) ----------
 
-ACCESSORY_SIGNALS = ["case", "cover", "screen protector", "tempered glass", "charger",
-                      "cable", "earphone", "headphone", "power bank", "protective film", "shockproof"]
+ACCESSORY_SIGNALS = ["case", "cover", "pouch", "screen protector", "tempered glass", "charger",
+                      "cable", "power bank", "protective film", "shockproof", "adapter",
+                      "memory card", "sd card", "flash drive", "stylus", "stand", "holder",
+                      "mount", "strap", "band"]
+
+WATCH_SIGNALS = ["smart watch", "smartwatch", "watch storm", "watch series", "watch ultra"]
+
+AUDIO_SIGNALS = ["earbud", "earbuds", "earphone", "headphone", "headset",
+                  "bluetooth speaker", "wireless speaker", "soundbar"]
 
 KNOWN_BRANDS = ["apple", "iphone", "samsung", "galaxy", "tecno", "infinix", "xiaomi", "redmi",
                 "poco", "itel", "nokia", "oukitel", "honor", "huawei", "google", "pixel",
@@ -48,6 +55,16 @@ KNOWN_BRANDS = ["apple", "iphone", "samsung", "galaxy", "tecno", "infinix", "xia
 def is_accessory(name):
     lower = name.lower()
     return any(signal in lower for signal in ACCESSORY_SIGNALS)
+
+
+def is_watch(name):
+    lower = name.lower()
+    return any(signal in lower for signal in WATCH_SIGNALS)
+
+
+def is_audio(name):
+    lower = name.lower()
+    return any(signal in lower for signal in AUDIO_SIGNALS)
 
 
 def extract_brand(name):
@@ -62,9 +79,15 @@ def extract_brand(name):
 def determine_category(name, page_category):
     """
     Returns the real category for a product, overriding the page's nominal
-    category (e.g. 'Phones') to 'Phone Accessories' when the product is
-    actually a case, pouch, charger, etc. that was just listed on that page.
+    category (e.g. 'Phones') when the product is actually a watch, earbud,
+    case, charger, etc. that was just cross-listed on that page.
+    Checked in order of specificity: watch/audio first (distinct categories),
+    then generic accessories last.
     """
+    if is_watch(name):
+        return "Watches"
+    if is_audio(name):
+        return "Audio"
     if is_accessory(name):
         return f"{page_category} Accessories" if page_category in ("Phones", "Laptops") else "Accessories"
     return page_category
