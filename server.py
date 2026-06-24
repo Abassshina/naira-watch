@@ -130,26 +130,25 @@ def scrape_phonemart_phones(all_results):
             print(f"PHONEMART PHONES: page {page_num} status = {response.status_code}")
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
-                products = soup.find_all("li", class_=re.compile(r"\bproduct\b"))
+                # PhoneMart uses the WoodMart theme, which wraps each product in a
+                # <div class="product-grid-item ... product ...">, not an <li> like
+                # standard WooCommerce themes. Match div tags with "product" as a
+                # standalone class word.
+                products = soup.find_all("div", class_=lambda c: c and "product" in c.split())
                 print(f"PHONEMART PHONES: page {page_num} found {len(products)} cards")
-                if len(products) == 0 and page_num == 1:
-                    print("PHONEMART DEBUG RAW HTML SNIPPET:")
-                    total_price_matches = response.text.count("woocommerce-Price-amount")
-                    print(f"PHONEMART DEBUG: total price-amount occurrences on page = {total_price_matches}")
-                    # Try to find the actual shop loop container, which WooCommerce
-                    # themes almost always wrap in a element with 'shop' or 'products' in its id/class
-                    idx = response.text.find('class="products')
-                    if idx == -1:
-                        idx = response.text.find("id=\"main\"")
-                    if idx == -1:
-                        idx = len(response.text) // 2
-                    print(response.text[idx:idx + 2500])
                 for product in products:
                     name_tag = product.find("h3") or product.find("h2")
                     price_tag = product.find(class_=re.compile(r"^(price|woocommerce-Price-amount)"))
-                    name = name_tag.get_text(strip=True) if name_tag else None
+                    name = None
+                    if name_tag:
+                        name = name_tag.get_text(strip=True)
+                    if not name:
+                        # Fall back to the product page link's "title" attribute or text
+                        link_tag = product.find("a", class_="woocommerce-LoopProduct-link") or product.find("a", title=True)
+                        if link_tag and link_tag.get("title"):
+                            name = link_tag.get("title").strip()
                     price_text = price_tag.get_text(strip=True) if price_tag else None
-                    if name and price_text:
+                    if name and price_text and len(name) > 3:
                         price_value = extract_first_price(price_text)
                         if price_value:
                             all_results.append({"name": name, "price": price_value, "store": "PhoneMart", "category": "Phones"})
