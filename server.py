@@ -10,7 +10,14 @@ from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime
 
-from database import initialize_database
+from database import (
+    initialize_database,
+    get_or_create_product,
+    save_listing,
+    save_price_history,
+    clear_all_listings,
+    get_all_listings_with_products,
+)
 
 app = Flask(__name__)
 
@@ -337,7 +344,32 @@ def run_scraper():
             for item in unique_results:
                 writer.writerow([item["store"], item["category"], item["name"], item["price"], today])
 
-        print(f"Scraper finished: saved {len(unique_results)} results")
+        print(f"Scraper finished: saved {len(unique_results)} results to CSV")
+
+        # ---------- DATABASE SAVE ----------
+        # Clear old listings first so prices that no longer exist don't linger.
+        # Price history is untouched - it keeps accumulating over time.
+        try:
+            clear_all_listings()
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            db_saved_count = 0
+            for item in unique_results:
+                brand = extract_brand(item["name"]) or "Other"
+                product_id = get_or_create_product(brand, item["name"], item["category"])
+                listing_id = save_listing(
+                    product_id=product_id,
+                    store=item["store"],
+                    product_name=item["name"],
+                    product_url="",
+                    price=item["price"],
+                    availability="In Stock",
+                    checked_at=now_str,
+                )
+                save_price_history(listing_id, item["price"], now_str)
+                db_saved_count += 1
+            print(f"Scraper finished: saved {db_saved_count} results to database")
+        except Exception as e:
+            print(f"DATABASE SAVE ERROR: {e}")
     else:
         print("Scraper finished: no results collected")
 
@@ -647,10 +679,7 @@ def home():
 
 initialize_database()
 
-scraper_thread = threading.Thread(
-    target=background_refresh_loop,
-    daemon=True
-)
+scraper_thread = threading.Thread(target=background_refresh_loop, daemon=True)
 scraper_thread.start()
 
 if __name__ == "__main__":
