@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, abort, render_template, request
 import csv
 import os
 import math
@@ -9,6 +9,7 @@ import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime
+from urllib.parse import quote, unquote
 
 from database import (
     initialize_database,
@@ -19,7 +20,9 @@ from database import (
     get_all_listings_with_products,
 )
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+app = Flask(__name__, template_folder=os.path.join(BASE_DIR, "templates"))
 
 ITEMS_PER_PAGE = 20
 CSV_FILE = "price_comparison.csv"
@@ -86,6 +89,83 @@ def extract_brand(name):
             normalize_map = {"iphone": "apple", "galaxy": "samsung", "pixel": "google"}
             return normalize_map.get(brand, brand).title()
     return None
+
+
+def read_price_rows():
+    rows = []
+    if os.path.exists(CSV_FILE):
+        with open(CSV_FILE, "r", encoding="utf-8", errors="replace") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+    for row in rows:
+        row["Brand"] = extract_brand(row["Product"]) or "Other"
+        row["ProductSlug"] = slugify_product_name(row["Product"])
+        row["PriceValue"] = parse_price(row.get("Price (NGN)", ""))
+    return rows
+
+
+def parse_price(value):
+    try:
+        return int(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return 0
+
+
+def format_naira(value):
+    return f"₦{int(value):,}"
+
+
+def slugify_product_name(name):
+    slug = name.lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    return quote(slug or "product")
+
+
+def extract_model_key(name):
+    if is_accessory(name):
+        return None
+
+    brand = extract_brand(name)
+    if not brand:
+        return None
+
+    lower = " " + name.lower() + " "
+    lower = re.sub(r'\d+\.\d+["\']?\s*(inch(es)?)?', " ", lower)
+
+    stop_words = [
+        r"\d+\s*gb", r"\d+\s*mb", r"\d+\s*tb", r"ram", r"rom",
+        r"dual\s*sim", r"single\s*sim", r"\bsim\b", r"\be[\-\s]?sim\b",
+        r"\b5g\b", r"\b4g\b", r"\blte\b", r"android\s*\d+",
+        r"light\s*blue", r"dark\s*blue", r"light\s*green", r"dark\s*green",
+        r"\bblack\b", r"\bblue\b", r"\bgold\b", r"\bwhite\b", r"\bsilver\b",
+        r"\bgreen\b", r"\bgrey\b", r"\bgray\b", r"\bpurple\b", r"\borange\b",
+        r"\bred\b", r"\bpink\b", r"\bdusk\b", r"\bvelvet\b",
+        r"\bdisplay\b", r"\bamoled\b", r"\bips\b", r"\bhd\+?\b", r"\bfhd\+?\b",
+        r"\d+hz\b", r"\(.*?\)",
+    ]
+    for pattern in stop_words:
+        lower = re.sub(pattern, " ", lower)
+
+    brand_words = ["apple", "iphone", "samsung", "galaxy", "tecno", "infinix", "xiaomi",
+                   "redmi", "poco", "itel", "nokia", "oukitel", "honor", "huawei",
+                   "google", "pixel", "nubia", "oppo", "vivo", "realme"]
+    for brand_word in brand_words:
+        lower = re.sub(r"\b" + brand_word + r"\b", " ", lower)
+
+    lower = re.sub(r"[^a-z0-9\s]", " ", lower)
+    lower = re.sub(r"\s+", " ", lower).strip()
+
+    words = lower.split()[:2]
+    model_part = " ".join(words)
+
+    if not model_part or len(model_part) < 2:
+        return None
+    return f"{brand}|{model_part}"
+
+
+app.jinja_env.filters["naira"] = format_naira
 
 
 def determine_category(name, page_category):
@@ -385,12 +465,7 @@ def background_refresh_loop():
 
 @app.route("/")
 def home():
-    rows = []
-
-    if os.path.exists(CSV_FILE):
-        with open(CSV_FILE, "r", encoding="utf-8", errors="replace") as f:
-            reader = csv.DictReader(f)
-            rows = list(reader)
+    rows = read_price_rows()
 
     all_stores = sorted(set(r["Store"] for r in rows))
     all_categories = sorted(set(r["Category"] for r in rows)) if rows else []
@@ -464,28 +539,6 @@ def home():
             params.append(f"max_price={max_price}")
         return "/?" + "&".join(params)
 
-    store_checkboxes = ""
-    for s in all_stores:
-        checked = "checked" if s in selected_stores else ""
-        store_checkboxes += f"""
-        <label class="store-check">
-            <input type="checkbox" name="store" value="{s}" {checked}> {s}
-        </label>
-        """
-
-    category_links = '<a class="cat-link {}" href="{}">All</a>'.format(
-        "active" if not selected_category else "", page_link(1, category="")
-    )
-    for c in all_categories:
-        active = "active" if c == selected_category else ""
-        count = len([r for r in rows if r["Category"] == c and r["Store"] in selected_stores])
-        category_links += f'<a class="cat-link {active}" href="{page_link(1, category=c)}">{c} <span class="cat-count">{count}</span></a>'
-
-    brand_options = '<option value="">All brands</option>'
-    for b in all_brands:
-        selected_attr = "selected" if b == selected_brand else ""
-        brand_options += f'<option value="{b}" {selected_attr}>{b}</option>'
-
     # ---------- BUILD COMPARISON GROUPS (for "Compare" view) ----------
     comparison_groups = []
     if view_mode == "compare":
@@ -514,6 +567,7 @@ def home():
                 comparison_groups.append({
                     "key": key,
                     "display_name": items_sorted[0]["Product"],
+                    "product_slug": items_sorted[0]["ProductSlug"],
                     "items": items_sorted,
                     "best_price": lowest_price,
                     "highest_price": highest_price,
@@ -523,191 +577,75 @@ def home():
                 })
         comparison_groups.sort(key=lambda g: g["best_price"])
 
-    html = f"""
-    <html>
-    <head>
-        <title>NairaWatch — Price Intelligence</title>
-        <style>
-            * {{ box-sizing: border-box; }}
-            body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f8; margin: 0; color: #1a2332; }}
-            .topbar {{ background: #0f1b2d; padding: 18px 32px; display: flex; justify-content: space-between; align-items: center; }}
-            .topbar .brand {{ color: #fff; font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }}
-            .topbar .brand span {{ color: #18b894; }}
-            .topbar .tagline {{ color: #8a99ab; font-size: 12px; }}
-            .layout {{ display: flex; max-width: 1400px; margin: 0 auto; }}
-            .sidebar {{ width: 220px; background: #fff; min-height: calc(100vh - 60px); padding: 24px 0; border-right: 1px solid #e3e8ee; }}
-            .sidebar h4 {{ font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a99ab; padding: 0 20px; margin-bottom: 10px; }}
-            .cat-link {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; color: #3c4a5c; text-decoration: none; font-size: 14px; border-left: 3px solid transparent; }}
-            .cat-link:hover {{ background: #f4f6f8; }}
-            .cat-link.active {{ background: #eef9f6; color: #0f1b2d; font-weight: 600; border-left-color: #18b894; }}
-            .cat-count {{ font-size: 11px; color: #8a99ab; background: #f0f2f5; padding: 1px 7px; border-radius: 10px; }}
-            .cat-link.active .cat-count {{ background: #d7f0ea; color: #0d7c66; }}
-            .main {{ flex: 1; padding: 28px 32px; }}
-            .filters {{ background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; padding: 16px 18px; margin-bottom: 20px; }}
-            .filter-row {{ display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }}
-            .filters input[type="text"], .filters input[type="number"] {{ padding: 9px 12px; border: 1px solid #d4dce4; border-radius: 5px; font-size: 14px; }}
-            .filters input[name="search"] {{ flex: 1; min-width: 200px; }}
-            .filters input[name="max_price"] {{ width: 150px; }}
-            .filters button {{ padding: 9px 18px; background: #0d7c66; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: 600; }}
-            .filters a.clear {{ color: #8a99ab; text-decoration: none; font-size: 13px; }}
-            .store-row {{ display: flex; gap: 16px; flex-wrap: wrap; align-items: center; padding-top: 10px; border-top: 1px solid #eef1f4; }}
-            .store-check {{ font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; color: #3c4a5c; cursor: pointer; }}
-            table {{ width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; overflow: hidden; }}
-            th {{ background: #0f1b2d; color: #fff; padding: 12px 16px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }}
-            td {{ padding: 13px 16px; border-bottom: 1px solid #eef1f4; font-size: 14px; }}
-            tr:hover td {{ background: #fafbfc; }}
-            .price {{ font-weight: 700; color: #0d7c66; }}
-            .best {{ background: #eef9f6; }}
-            .empty {{ padding: 50px; text-align: center; color: #8a99ab; background: #fff; border-radius: 8px; }}
-            .store-tag {{ display: inline-block; padding: 3px 9px; border-radius: 4px; font-size: 11px; font-weight: 700; color: white; }}
-            .tag-Justfones {{ background: #2563eb; }}
-            .tag-Pointek {{ background: #16a34a; }}
-            .tag-PhoneMart {{ background: #d97706; }}
-            .pagination {{ margin-top: 20px; text-align: center; }}
-            .pagination a {{ display: inline-block; margin: 0 3px; padding: 7px 13px; background: white; color: #3c4a5c; text-decoration: none; border: 1px solid #d4dce4; border-radius: 5px; font-size: 13px; }}
-            .pagination a.active {{ background: #0d7c66; color: white; border-color: #0d7c66; }}
-            .count {{ text-align: center; color: #8a99ab; font-size: 13px; margin-top: 12px; }}
-            .filters select {{ padding: 9px 12px; border: 1px solid #d4dce4; border-radius: 5px; font-size: 14px; background: white; }}
-            .view-toggle {{ display: flex; gap: 0; border: 1px solid #d4dce4; border-radius: 5px; overflow: hidden; }}
-            .view-toggle a {{ padding: 8px 16px; font-size: 13px; color: #3c4a5c; text-decoration: none; background: white; }}
-            .view-toggle a.active {{ background: #0d7c66; color: white; font-weight: 600; }}
-            .compare-card {{ background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; margin-bottom: 14px; overflow: hidden; }}
-            .compare-card-header {{ padding: 14px 18px; background: #fafbfc; border-bottom: 1px solid #eef1f4; display: flex; justify-content: space-between; align-items: center; }}
-            .compare-card-title {{ font-weight: 700; font-size: 15px; color: #0f1b2d; }}
-            .compare-card-meta {{ font-size: 12px; color: #8a99ab; }}
-            .compare-stats {{ display: flex; gap: 10px; padding: 12px 18px; background: #fafbfc; border-bottom: 1px solid #eef1f4; flex-wrap: wrap; align-items: center; }}
-            .stat-box {{ display: flex; flex-direction: column; gap: 2px; }}
-            .stat-label {{ font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #8a99ab; }}
-            .stat-value {{ font-size: 14px; font-weight: 700; color: #3c4a5c; }}
-            .stat-value.lowest {{ color: #0d7c66; }}
-            .stat-pill {{ margin-left: auto; font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 12px; }}
-            .stat-pill.savings {{ background: #fef3e2; color: #b45309; }}
-            .compare-row {{ display: flex; justify-content: space-between; align-items: center; padding: 11px 18px; border-bottom: 1px solid #f4f6f8; }}
-            .compare-row:last-child {{ border-bottom: none; }}
-            .compare-row.cheapest {{ background: #eef9f6; }}
-            .compare-row .left {{ display: flex; align-items: center; gap: 10px; }}
-            .compare-row .product-name {{ font-size: 13px; color: #3c4a5c; max-width: 420px; }}
-            .compare-badge {{ font-size: 10px; font-weight: 700; color: #0d7c66; background: #d7f0ea; padding: 2px 7px; border-radius: 10px; }}
-        </style>
-    </head>
-    <body>
-        <div class="topbar">
-            <div class="brand">Naira<span>Watch</span></div>
-            <div class="tagline">{len(rows)} products tracked across {len(all_stores)} stores — refreshes every 4 hours</div>
-        </div>
-        <div class="layout">
-            <div class="sidebar">
-                <h4>Categories</h4>
-                {category_links}
-            </div>
-            <div class="main">
-                <form class="filters" method="get" action="/">
-                    <input type="hidden" name="category" value="{selected_category}">
-                    <input type="hidden" name="view" value="{view_mode}">
-                    <div class="filter-row">
-                        <input type="text" name="search" placeholder="Search products..." value="{search_query}">
-                        <select name="brand">
-                            {brand_options}
-                        </select>
-                        <input type="number" name="max_price" placeholder="Max price (₦)" value="{max_price}">
-                        <button type="submit">Apply</button>
-                        <a class="clear" href="/">Clear</a>
-                        <div class="view-toggle">
-                            <a class="{'active' if view_mode == 'list' else ''}" href="{page_link(1, view='list')}">List</a>
-                            <a class="{'active' if view_mode == 'compare' else ''}" href="{page_link(1, view='compare')}">Compare</a>
-                        </div>
-                    </div>
-                    <div class="store-row">
-                        <span style="font-size:13px; color:#8a99ab;">Stores:</span>
-                        {store_checkboxes}
-                    </div>
-                </form>
-    """
+    category_counts = {
+        category: len([r for r in rows if r["Category"] == category and r["Store"] in selected_stores])
+        for category in all_categories
+    }
 
-    if view_mode == "compare":
-        if comparison_groups:
-            html += f'<div class="count" style="margin-bottom:14px;">{len(comparison_groups)} products with prices from 2+ stores</div>'
-            for group in comparison_groups:
-                savings_note = ""
-                if group["savings"] > 0:
-                    savings_note = f'<span class="stat-pill savings">Save up to ₦{group["savings"]:,} by comparing</span>'
-                html += f"""
-                <div class="compare-card">
-                    <div class="compare-card-header">
-                        <span class="compare-card-title">{group['display_name']}</span>
-                        <span class="compare-card-meta">{group['store_count']} stores</span>
-                    </div>
-                    <div class="compare-stats">
-                        <div class="stat-box">
-                            <span class="stat-label">Lowest</span>
-                            <span class="stat-value lowest">₦{group['best_price']:,}</span>
-                        </div>
-                        <div class="stat-box">
-                            <span class="stat-label">Average</span>
-                            <span class="stat-value">₦{group['average_price']:,}</span>
-                        </div>
-                        <div class="stat-box">
-                            <span class="stat-label">Highest</span>
-                            <span class="stat-value">₦{group['highest_price']:,}</span>
-                        </div>
-                        {savings_note}
-                    </div>
-                """
-                for i, item in enumerate(group["items"]):
-                    row_class = "cheapest" if i == 0 else ""
-                    badge = '<span class="compare-badge">BEST PRICE</span>' if i == 0 else ""
-                    price_formatted = f"₦{int(item['Price (NGN)']):,}"
-                    store_name = item["Store"]
-                    html += f"""
-                    <div class="compare-row {row_class}">
-                        <div class="left">
-                            <span class="store-tag tag-{store_name}">{store_name}</span>
-                            <span class="product-name">{item['Product']}</span>
-                            {badge}
-                        </div>
-                        <span class="price">{price_formatted}</span>
-                    </div>
-                    """
-                html += "</div>"
-        elif not rows:
-            html += '<div class="empty">First scrape is running — this can take a couple of minutes. Refresh shortly.</div>'
-        else:
-            html += '<div class="empty">No matching products found across 2+ stores. Try clearing filters, or switch to List view.</div>'
+    return render_template(
+        "home.html",
+        rows=rows,
+        all_stores=all_stores,
+        all_categories=all_categories,
+        all_brands=all_brands,
+        selected_stores=selected_stores,
+        selected_category=selected_category,
+        selected_brand=selected_brand,
+        search_query=search_query,
+        max_price=max_price,
+        view_mode=view_mode,
+        page_rows=page_rows,
+        comparison_groups=comparison_groups,
+        current_page=current_page,
+        total_pages=total_pages,
+        total_items=total_items,
+        category_counts=category_counts,
+        page_link=page_link,
+    )
+
+
+
+@app.route("/products/<product_slug>")
+def product_details(product_slug):
+    rows = read_price_rows()
+    decoded_slug = unquote(product_slug).strip("/")
+    selected_row = next((row for row in rows if unquote(row["ProductSlug"]) == decoded_slug), None)
+
+    if not selected_row:
+        abort(404)
+
+    model_key = extract_model_key(selected_row["Product"])
+    if model_key:
+        product_rows = [
+            row for row in rows
+            if extract_model_key(row["Product"]) == model_key
+        ]
     else:
-        if page_rows:
-            html += "<table><tr><th>Store</th><th>Product</th><th>Price</th><th>Checked</th></tr>"
-            for i, row in enumerate(page_rows):
-                row_class = "best" if (start + i == 0) else ""
-                price_formatted = f"₦{int(row['Price (NGN)']):,}"
-                store_name = row['Store']
-                html += f"""
-                <tr class="{row_class}">
-                    <td><span class="store-tag tag-{store_name}">{store_name}</span></td>
-                    <td>{row['Product']}</td>
-                    <td class="price">{price_formatted}</td>
-                    <td>{row['Date Checked']}</td>
-                </tr>
-                """
-            html += "</table>"
+        product_rows = [
+            row for row in rows
+            if row["Product"].strip().lower() == selected_row["Product"].strip().lower()
+        ]
 
-            html += '<div class="pagination">'
-            if current_page > 1:
-                html += f'<a href="{page_link(current_page - 1)}">&laquo; Prev</a>'
-            for p in range(1, total_pages + 1):
-                active_class = "active" if p == current_page else ""
-                html += f'<a class="{active_class}" href="{page_link(p)}">{p}</a>'
-            if current_page < total_pages:
-                html += f'<a href="{page_link(current_page + 1)}">Next &raquo;</a>'
-            html += '</div>'
+    product_rows = sorted(product_rows, key=lambda row: row["PriceValue"])
+    prices = [row["PriceValue"] for row in product_rows if row["PriceValue"] > 0]
 
-            html += f'<div class="count">Page {current_page} of {total_pages} — {total_items} matching products</div>'
-        elif not rows:
-            html += '<div class="empty">First scrape is running — this can take a couple of minutes. Refresh shortly.</div>'
-        else:
-            html += '<div class="empty">No products match your filters.</div>'
+    if not prices:
+        abort(404)
 
-    html += "</div></div></body></html>"
-    return html
+    lowest_price = min(prices)
+    highest_price = max(prices)
+    average_price = round(sum(prices) / len(prices))
+    last_updated = max((row["Date Checked"] for row in product_rows if row.get("Date Checked")), default="Not available")
+
+    return render_template(
+        "product_details.html",
+        product=selected_row,
+        product_rows=product_rows,
+        lowest_price=lowest_price,
+        highest_price=highest_price,
+        average_price=average_price,
+        last_updated=last_updated,
+    )
 
 
 initialize_database()

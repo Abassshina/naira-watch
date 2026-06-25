@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product["Product"] }} | NairaWatch{% endblock %}
+{% block tagline %}{{ product_rows|length }} listings found - updated {{ last_updated }}{% endblock %}
+
+{% block body %}
+<div class="layout">
+    <div class="main" style="max-width: 1180px; margin: 0 auto;">
+        <div class="detail-header">
+            <a class="back-link" href="{{ url_for('home') }}">&laquo; Back to products</a>
+            <h1>{{ product["Product"] }}</h1>
+            <div class="detail-meta">
+                {{ product["Category"] }}{% if product["Brand"] != "Other" %} - {{ product["Brand"] }}{% endif %}
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="summary-card">
+                <div class="label">Lowest Price</div>
+                <div class="value lowest">{{ lowest_price|naira }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Highest Price</div>
+                <div class="value">{{ highest_price|naira }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Average Price</div>
+                <div class="value">{{ average_price|naira }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Last Updated</div>
+                <div class="value" style="font-size:16px;">{{ last_updated }}</div>
+            </div>
+        </div>
+
+        <h2 class="section-title">Stores Selling This Product</h2>
+        <table>
+            <tr>
+                <th>Store</th>
+                <th>Product Name</th>
+                <th>Price</th>
+                <th>Last Checked</th>
+            </tr>
+            {% for row in product_rows %}
+                <tr class="{% if loop.first %}best{% endif %}">
+                    <td><span class="store-tag tag-{{ row['Store'] }}">{{ row["Store"] }}</span></td>
+                    <td>{{ row["Product"] }}</td>
+                    <td class="price">{{ row.PriceValue|naira }}</td>
+                    <td>{{ row["Date Checked"] }}</td>
+                </tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+{% endblock %}

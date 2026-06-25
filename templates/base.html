@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}NairaWatch - Price Intelligence{% endblock %}</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f8; margin: 0; color: #1a2332; }
+        .topbar { background: #0f1b2d; padding: 18px 32px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+        .topbar .brand { color: #fff; font-size: 20px; font-weight: 700; letter-spacing: -0.3px; text-decoration: none; }
+        .topbar .brand span { color: #18b894; }
+        .topbar .tagline { color: #8a99ab; font-size: 12px; text-align: right; }
+        .layout { display: flex; max-width: 1400px; margin: 0 auto; }
+        .sidebar { width: 220px; background: #fff; min-height: calc(100vh - 60px); padding: 24px 0; border-right: 1px solid #e3e8ee; }
+        .sidebar h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a99ab; padding: 0 20px; margin-bottom: 10px; }
+        .main { flex: 1; padding: 28px 32px; min-width: 0; }
+        .cat-link { display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; color: #3c4a5c; text-decoration: none; font-size: 14px; border-left: 3px solid transparent; }
+        .cat-link:hover { background: #f4f6f8; }
+        .cat-link.active { background: #eef9f6; color: #0f1b2d; font-weight: 600; border-left-color: #18b894; }
+        .cat-count { font-size: 11px; color: #8a99ab; background: #f0f2f5; padding: 1px 7px; border-radius: 10px; }
+        .cat-link.active .cat-count { background: #d7f0ea; color: #0d7c66; }
+        .filters { background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; padding: 16px 18px; margin-bottom: 20px; }
+        .filter-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+        .filters input[type="text"], .filters input[type="number"] { padding: 9px 12px; border: 1px solid #d4dce4; border-radius: 5px; font-size: 14px; }
+        .filters input[name="search"] { flex: 1; min-width: 200px; }
+        .filters input[name="max_price"] { width: 150px; }
+        .filters button { padding: 9px 18px; background: #0d7c66; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: 600; }
+        .filters a.clear { color: #8a99ab; text-decoration: none; font-size: 13px; }
+        .filters select { padding: 9px 12px; border: 1px solid #d4dce4; border-radius: 5px; font-size: 14px; background: white; }
+        .store-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; padding-top: 10px; border-top: 1px solid #eef1f4; }
+        .store-check { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; color: #3c4a5c; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; overflow: hidden; }
+        th { background: #0f1b2d; color: #fff; padding: 12px 16px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+        td { padding: 13px 16px; border-bottom: 1px solid #eef1f4; font-size: 14px; }
+        tr:hover td { background: #fafbfc; }
+        .price { font-weight: 700; color: #0d7c66; white-space: nowrap; }
+        .best { background: #eef9f6; }
+        .empty { padding: 50px; text-align: center; color: #8a99ab; background: #fff; border-radius: 8px; }
+        .store-tag { display: inline-block; padding: 3px 9px; border-radius: 4px; font-size: 11px; font-weight: 700; color: white; }
+        .tag-Justfones { background: #2563eb; }
+        .tag-Pointek { background: #16a34a; }
+        .tag-PhoneMart { background: #d97706; }
+        .pagination { margin-top: 20px; text-align: center; }
+        .pagination a { display: inline-block; margin: 0 3px; padding: 7px 13px; background: white; color: #3c4a5c; text-decoration: none; border: 1px solid #d4dce4; border-radius: 5px; font-size: 13px; }
+        .pagination a.active { background: #0d7c66; color: white; border-color: #0d7c66; }
+        .count { text-align: center; color: #8a99ab; font-size: 13px; margin-top: 12px; }
+        .product-link { color: #0d7c66; text-decoration: underline; text-underline-offset: 3px; font-weight: 700; }
+        .product-link:hover { color: #0d7c66; text-decoration: underline; }
+        .view-toggle { display: flex; gap: 0; border: 1px solid #d4dce4; border-radius: 5px; overflow: hidden; }
+        .view-toggle a { padding: 8px 16px; font-size: 13px; color: #3c4a5c; text-decoration: none; background: white; }
+        .view-toggle a.active { background: #0d7c66; color: white; font-weight: 600; }
+        .compare-card { background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; margin-bottom: 14px; overflow: hidden; }
+        .compare-card-header { padding: 14px 18px; background: #fafbfc; border-bottom: 1px solid #eef1f4; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+        .compare-card-title { font-weight: 700; font-size: 15px; color: #0f1b2d; }
+        .compare-card-meta { font-size: 12px; color: #8a99ab; white-space: nowrap; }
+        .compare-stats { display: flex; gap: 10px; padding: 12px 18px; background: #fafbfc; border-bottom: 1px solid #eef1f4; flex-wrap: wrap; align-items: center; }
+        .stat-box { display: flex; flex-direction: column; gap: 2px; }
+        .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #8a99ab; }
+        .stat-value { font-size: 14px; font-weight: 700; color: #3c4a5c; }
+        .stat-value.lowest { color: #0d7c66; }
+        .stat-pill { margin-left: auto; font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 12px; }
+        .stat-pill.savings { background: #fef3e2; color: #b45309; }
+        .compare-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 11px 18px; border-bottom: 1px solid #f4f6f8; }
+        .compare-row:last-child { border-bottom: none; }
+        .compare-row.cheapest { background: #eef9f6; }
+        .compare-row .left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .compare-row .product-name { font-size: 13px; color: #3c4a5c; max-width: 420px; }
+        .compare-badge { font-size: 10px; font-weight: 700; color: #0d7c66; background: #d7f0ea; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+        .detail-header { background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; padding: 22px; margin-bottom: 18px; }
+        .back-link { color: #0d7c66; text-decoration: none; font-size: 13px; font-weight: 700; }
+        .detail-header h1 { margin: 12px 0 8px; font-size: 28px; line-height: 1.2; }
+        .detail-meta { color: #8a99ab; font-size: 13px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+        .summary-card { background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; padding: 16px; }
+        .summary-card .label { color: #8a99ab; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+        .summary-card .value { color: #1a2332; font-size: 20px; font-weight: 800; }
+        .summary-card .value.lowest { color: #0d7c66; }
+        .section-title { font-size: 16px; margin: 22px 0 12px; }
+        @media (max-width: 800px) {
+            .topbar { align-items: flex-start; flex-direction: column; }
+            .topbar .tagline { text-align: left; }
+            .layout { display: block; }
+            .sidebar { width: 100%; min-height: 0; border-right: none; border-bottom: 1px solid #e3e8ee; }
+            .main { padding: 20px; }
+            .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .compare-row { align-items: flex-start; flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <a class="brand" href="{{ url_for('home') }}">Naira<span>Watch</span></a>
+        <div class="tagline">{% block tagline %}{% endblock %}</div>
+    </div>
+    {% block body %}{% endblock %}
+</body>
+</html>

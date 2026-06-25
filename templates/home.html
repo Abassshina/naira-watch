@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block title %}NairaWatch - Price Intelligence{% endblock %}
+{% block tagline %}{{ rows|length }} products tracked across {{ all_stores|length }} stores - refreshes every 4 hours{% endblock %}
+
+{% block body %}
+<div class="layout">
+    <div class="sidebar">
+        <h4>Categories</h4>
+        <a class="cat-link {% if not selected_category %}active{% endif %}" href="{{ page_link(1, category='') }}">All</a>
+        {% for category in all_categories %}
+            <a class="cat-link {% if category == selected_category %}active{% endif %}" href="{{ page_link(1, category=category) }}">
+                {{ category }}
+                <span class="cat-count">{{ category_counts[category] }}</span>
+            </a>
+        {% endfor %}
+    </div>
+
+    <div class="main">
+        <form class="filters" method="get" action="{{ url_for('home') }}">
+            <input type="hidden" name="category" value="{{ selected_category }}">
+            <input type="hidden" name="view" value="{{ view_mode }}">
+            <div class="filter-row">
+                <input type="text" name="search" placeholder="Search products..." value="{{ search_query }}">
+                <select name="brand">
+                    <option value="">All brands</option>
+                    {% for brand in all_brands %}
+                        <option value="{{ brand }}" {% if brand == selected_brand %}selected{% endif %}>{{ brand }}</option>
+                    {% endfor %}
+                </select>
+                <input type="number" name="max_price" placeholder="Max price (NGN)" value="{{ max_price }}">
+                <button type="submit">Apply</button>
+                <a class="clear" href="{{ url_for('home') }}">Clear</a>
+                <div class="view-toggle">
+                    <a class="{% if view_mode == 'list' %}active{% endif %}" href="{{ page_link(1, view='list') }}">List</a>
+                    <a class="{% if view_mode == 'compare' %}active{% endif %}" href="{{ page_link(1, view='compare') }}">Compare</a>
+                </div>
+            </div>
+            <div class="store-row">
+                <span style="font-size:13px; color:#8a99ab;">Stores:</span>
+                {% for store in all_stores %}
+                    <label class="store-check">
+                        <input type="checkbox" name="store" value="{{ store }}" {% if store in selected_stores %}checked{% endif %}> {{ store }}
+                    </label>
+                {% endfor %}
+            </div>
+        </form>
+
+        {% if view_mode == "compare" %}
+            {% if comparison_groups %}
+                <div class="count" style="margin-bottom:14px;">{{ comparison_groups|length }} products with prices from 2+ stores</div>
+                {% for group in comparison_groups %}
+                    <div class="compare-card">
+                        <div class="compare-card-header">
+                            <a class="compare-card-title product-link" href="{{ url_for('product_details', product_slug=group.product_slug) }}">{{ group.display_name }}</a>
+                            <span class="compare-card-meta">{{ group.store_count }} stores</span>
+                        </div>
+                        <div class="compare-stats">
+                            <div class="stat-box">
+                                <span class="stat-label">Lowest</span>
+                                <span class="stat-value lowest">{{ group.best_price|naira }}</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="stat-label">Average</span>
+                                <span class="stat-value">{{ group.average_price|naira }}</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="stat-label">Highest</span>
+                                <span class="stat-value">{{ group.highest_price|naira }}</span>
+                            </div>
+                            {% if group.savings > 0 %}
+                                <span class="stat-pill savings">Save up to {{ group.savings|naira }} by comparing</span>
+                            {% endif %}
+                        </div>
+                        {% for item in group["items"] %}
+                            <div class="compare-row {% if loop.first %}cheapest{% endif %}">
+                                <div class="left">
+                                    <span class="store-tag tag-{{ item['Store'] }}">{{ item["Store"] }}</span>
+                                    <a class="product-name product-link" href="{{ url_for('product_details', product_slug=item.ProductSlug) }}">{{ item["Product"] }}</a>
+                                    {% if loop.first %}<span class="compare-badge">BEST PRICE</span>{% endif %}
+                                </div>
+                                <span class="price">{{ item.PriceValue|naira }}</span>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            {% elif not rows %}
+                <div class="empty">First scrape is running - this can take a couple of minutes. Refresh shortly.</div>
+            {% else %}
+                <div class="empty">No matching products found across 2+ stores. Try clearing filters, or switch to List view.</div>
+            {% endif %}
+        {% else %}
+            {% if page_rows %}
+                <table>
+                    <tr><th>Store</th><th>Product</th><th>Price</th><th>Checked</th></tr>
+                    {% for row in page_rows %}
+                        <tr class="{% if loop.index0 == 0 and current_page == 1 %}best{% endif %}">
+                            <td><span class="store-tag tag-{{ row['Store'] }}">{{ row["Store"] }}</span></td>
+                            <td><a class="product-link" href="{{ url_for('product_details', product_slug=row.ProductSlug) }}">{{ row["Product"] }}</a></td>
+                            <td class="price">{{ row.PriceValue|naira }}</td>
+                            <td>{{ row["Date Checked"] }}</td>
+                        </tr>
+                    {% endfor %}
+                </table>
+
+                <div class="pagination">
+                    {% if current_page > 1 %}
+                        <a href="{{ page_link(current_page - 1) }}">&laquo; Prev</a>
+                    {% endif %}
+                    {% for page in range(1, total_pages + 1) %}
+                        <a class="{% if page == current_page %}active{% endif %}" href="{{ page_link(page) }}">{{ page }}</a>
+                    {% endfor %}
+                    {% if current_page < total_pages %}
+                        <a href="{{ page_link(current_page + 1) }}">Next &raquo;</a>
+                    {% endif %}
+                </div>
+
+                <div class="count">Page {{ current_page }} of {{ total_pages }} - {{ total_items }} matching products</div>
+            {% elif not rows %}
+                <div class="empty">First scrape is running - this can take a couple of minutes. Refresh shortly.</div>
+            {% else %}
+                <div class="empty">No products match your filters.</div>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
