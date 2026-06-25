@@ -506,11 +506,19 @@ def home():
             stores_in_group = set(item["Store"] for item in items)
             if len(stores_in_group) >= 2:
                 items_sorted = sorted(items, key=lambda x: int(x["Price (NGN)"]))
+                prices = [int(item["Price (NGN)"]) for item in items_sorted]
+                lowest_price = prices[0]
+                highest_price = prices[-1]
+                average_price = sum(prices) // len(prices)
+                savings = highest_price - lowest_price
                 comparison_groups.append({
                     "key": key,
                     "display_name": items_sorted[0]["Product"],
                     "items": items_sorted,
-                    "best_price": int(items_sorted[0]["Price (NGN)"]),
+                    "best_price": lowest_price,
+                    "highest_price": highest_price,
+                    "average_price": average_price,
+                    "savings": savings,
                     "store_count": len(stores_in_group),
                 })
         comparison_groups.sort(key=lambda g: g["best_price"])
@@ -567,6 +575,13 @@ def home():
             .compare-card-header {{ padding: 14px 18px; background: #fafbfc; border-bottom: 1px solid #eef1f4; display: flex; justify-content: space-between; align-items: center; }}
             .compare-card-title {{ font-weight: 700; font-size: 15px; color: #0f1b2d; }}
             .compare-card-meta {{ font-size: 12px; color: #8a99ab; }}
+            .compare-stats {{ display: flex; gap: 10px; padding: 12px 18px; background: #fafbfc; border-bottom: 1px solid #eef1f4; flex-wrap: wrap; align-items: center; }}
+            .stat-box {{ display: flex; flex-direction: column; gap: 2px; }}
+            .stat-label {{ font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #8a99ab; }}
+            .stat-value {{ font-size: 14px; font-weight: 700; color: #3c4a5c; }}
+            .stat-value.lowest {{ color: #0d7c66; }}
+            .stat-pill {{ margin-left: auto; font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 12px; }}
+            .stat-pill.savings {{ background: #fef3e2; color: #b45309; }}
             .compare-row {{ display: flex; justify-content: space-between; align-items: center; padding: 11px 18px; border-bottom: 1px solid #f4f6f8; }}
             .compare-row:last-child {{ border-bottom: none; }}
             .compare-row.cheapest {{ background: #eef9f6; }}
@@ -613,11 +628,29 @@ def home():
         if comparison_groups:
             html += f'<div class="count" style="margin-bottom:14px;">{len(comparison_groups)} products with prices from 2+ stores</div>'
             for group in comparison_groups:
+                savings_note = ""
+                if group["savings"] > 0:
+                    savings_note = f'<span class="stat-pill savings">Save up to ₦{group["savings"]:,} by comparing</span>'
                 html += f"""
                 <div class="compare-card">
                     <div class="compare-card-header">
                         <span class="compare-card-title">{group['display_name']}</span>
                         <span class="compare-card-meta">{group['store_count']} stores</span>
+                    </div>
+                    <div class="compare-stats">
+                        <div class="stat-box">
+                            <span class="stat-label">Lowest</span>
+                            <span class="stat-value lowest">₦{group['best_price']:,}</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label">Average</span>
+                            <span class="stat-value">₦{group['average_price']:,}</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label">Highest</span>
+                            <span class="stat-value">₦{group['highest_price']:,}</span>
+                        </div>
+                        {savings_note}
                     </div>
                 """
                 for i, item in enumerate(group["items"]):
