@@ -280,10 +280,30 @@ def scrape_justfones_category(all_results, url_slug, category_label):
                     price_tag = product.find("span", class_="price")
                     name = name_tag.text.strip() if name_tag else None
                     price_text = price_tag.text.strip() if price_tag else None
+
+                    image_url = None
+                    img_tag = product.find("img")
+                    if img_tag:
+                        # Magento sometimes lazy-loads images, with the real URL
+                        # sitting in data-src/data-lazy-src instead of src.
+                        image_url = (
+                            img_tag.get("src")
+                            or img_tag.get("data-src")
+                            or img_tag.get("data-lazy-src")
+                        )
+                        if image_url and image_url.startswith("data:image"):
+                            image_url = img_tag.get("data-src") or img_tag.get("data-lazy-src")
+
                     if name and price_text:
                         price_value = extract_first_price(price_text)
                         if price_value:
-                            all_results.append({"name": name, "price": price_value, "store": "Justfones", "category": determine_category(name, category_label)})
+                            all_results.append({
+                                "name": name,
+                                "price": price_value,
+                                "store": "Justfones",
+                                "category": determine_category(name, category_label),
+                                "image_url": image_url,
+                            })
             else:
                 print(f"{tag}: page {page_num} not OK, stopping")
                 break
@@ -334,10 +354,28 @@ def scrape_pointek_category(all_results, url_slug, category_label):
                                 name = re.split(r"₦", full_text)[0].strip()
                                 break
                     price_text = price_tag.get_text(strip=True) if price_tag else None
+
+                    image_url = None
+                    img_tag = product.find("img")
+                    if img_tag:
+                        image_url = (
+                            img_tag.get("src")
+                            or img_tag.get("data-src")
+                            or img_tag.get("data-lazy-src")
+                        )
+                        if image_url and image_url.startswith("data:image"):
+                            image_url = img_tag.get("data-src") or img_tag.get("data-lazy-src")
+
                     if name and price_text and len(name) > 3:
                         price_value = extract_first_price(price_text)
                         if price_value:
-                            all_results.append({"name": name, "price": price_value, "store": "Pointek", "category": determine_category(name, category_label)})
+                            all_results.append({
+                                "name": name,
+                                "price": price_value,
+                                "store": "Pointek",
+                                "category": determine_category(name, category_label),
+                                "image_url": image_url,
+                            })
             else:
                 print(f"{tag}: page {page_num} not OK, stopping")
                 break
@@ -384,10 +422,28 @@ def scrape_phonemart_category(all_results, url_slug, category_label):
                         if link_tag and link_tag.get("title"):
                             name = link_tag.get("title").strip()
                     price_text = price_tag.get_text(strip=True) if price_tag else None
+
+                    image_url = None
+                    img_tag = product.find("img")
+                    if img_tag:
+                        image_url = (
+                            img_tag.get("src")
+                            or img_tag.get("data-src")
+                            or img_tag.get("data-lazy-src")
+                        )
+                        if image_url and image_url.startswith("data:image"):
+                            image_url = img_tag.get("data-src") or img_tag.get("data-lazy-src")
+
                     if name and price_text and len(name) > 3:
                         price_value = extract_first_price(price_text)
                         if price_value:
-                            all_results.append({"name": name, "price": price_value, "store": "PhoneMart", "category": determine_category(name, category_label)})
+                            all_results.append({
+                                "name": name,
+                                "price": price_value,
+                                "store": "PhoneMart",
+                                "category": determine_category(name, category_label),
+                                "image_url": image_url,
+                            })
             else:
                 print(f"{tag}: page {page_num} not OK, stopping")
                 break
@@ -435,10 +491,11 @@ def run_scraper():
 
         with open(CSV_FILE, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["Store", "Category", "Product", "Price (NGN)", "Date Checked"])
+            writer.writerow(["Store", "Category", "Product", "Price (NGN)", "Date Checked", "Image URL"])
             today = datetime.now().strftime("%Y-%m-%d %H:%M")
             for item in unique_results:
-                writer.writerow([item["store"], item["category"], item["name"], item["price"], today])
+                image_url = item.get("image_url") or item.get("image") or item.get("ImageUrl") or ""
+                writer.writerow([item["store"], item["category"], item["name"], item["price"], today, image_url])
 
         print(f"Scraper finished: saved {len(unique_results)} results to CSV")
 
