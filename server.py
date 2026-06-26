@@ -1,4 +1,4 @@
-from flask import Flask, abort, render_template, request
+from flask import Flask, Response, abort, render_template, request
 import csv
 import os
 import math
@@ -6,6 +6,7 @@ import re
 import time
 import threading
 import requests
+from html import escape
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime
@@ -102,7 +103,22 @@ def read_price_rows():
         row["Brand"] = extract_brand(row["Product"]) or "Other"
         row["ProductSlug"] = slugify_product_name(row["Product"])
         row["PriceValue"] = parse_price(row.get("Price (NGN)", ""))
+        row["ImageUrl"] = resolve_product_image_url(row)
     return rows
+
+
+def resolve_product_image_url(row):
+    """Returns a real product image when available, otherwise a stable placeholder."""
+    for key in ("Image URL", "ImageUrl", "image_url", "image"):
+        image_url = str(row.get(key) or "").strip()
+        if image_url:
+            return image_url
+    return placeholder_image_url(row.get("Category", "Products"))
+
+
+def placeholder_image_url(category):
+    category_slug = slugify_product_name(category or "Products")
+    return f"/images/placeholders/{category_slug}.svg"
 
 
 def parse_price(value):
@@ -435,7 +451,8 @@ def run_scraper():
             db_saved_count = 0
             for item in unique_results:
                 brand = extract_brand(item["name"]) or "Other"
-                product_id = get_or_create_product(brand, item["name"], item["category"])
+                image_url = item.get("image_url") or item.get("image") or item.get("ImageUrl")
+                product_id = get_or_create_product(brand, item["name"], item["category"], image_url=image_url)
                 listing_id = save_listing(
                     product_id=product_id,
                     store=item["store"],
@@ -461,6 +478,29 @@ def background_refresh_loop():
         except Exception as e:
             print(f"Background scraper error: {e}")
         time.sleep(REFRESH_INTERVAL_SECONDS)
+
+
+@app.route("/images/placeholders/<category_slug>.svg")
+def product_image_placeholder(category_slug):
+    label = unquote(category_slug).replace("-", " ").strip().title() or "Product"
+    initials = "".join(word[0] for word in label.split()[:2]).upper() or "NW"
+    safe_label = escape(label)
+    safe_initials = escape(initials)
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="700" height="700" viewBox="0 0 700 700" role="img" aria-label="{safe_label} placeholder">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eef9f6"/>
+      <stop offset="1" stop-color="#dfe7ef"/>
+    </linearGradient>
+  </defs>
+  <rect width="700" height="700" rx="54" fill="url(#bg)"/>
+  <rect x="150" y="120" width="400" height="460" rx="42" fill="#ffffff" stroke="#c9d5df" stroke-width="12"/>
+  <rect x="190" y="170" width="320" height="310" rx="24" fill="#f4f6f8"/>
+  <circle cx="350" cy="525" r="24" fill="#0d7c66"/>
+  <text x="350" y="345" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="104" font-weight="800" fill="#0d7c66">{safe_initials}</text>
+  <text x="350" y="640" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700" fill="#3c4a5c">NairaWatch</text>
+</svg>"""
+    return Response(svg, mimetype="image/svg+xml")
 
 
 @app.route("/")

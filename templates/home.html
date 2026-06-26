@@ -76,6 +76,7 @@
                             <div class="compare-row {% if loop.first %}cheapest{% endif %}">
                                 <div class="left">
                                     <span class="store-tag tag-{{ item['Store'] }}">{{ item["Store"] }}</span>
+                                    <img class="product-thumb" src="{{ item.ImageUrl }}" alt="{{ item['Product'] }}">
                                     <a class="product-name product-link" href="{{ url_for('product_details', product_slug=item.ProductSlug) }}">{{ item["Product"] }}</a>
                                     {% if loop.first %}<span class="compare-badge">BEST PRICE</span>{% endif %}
                                 </div>
@@ -96,7 +97,15 @@
                     {% for row in page_rows %}
                         <tr class="{% if loop.index0 == 0 and current_page == 1 %}best{% endif %}">
                             <td><span class="store-tag tag-{{ row['Store'] }}">{{ row["Store"] }}</span></td>
-                            <td><a class="product-link" href="{{ url_for('product_details', product_slug=row.ProductSlug) }}">{{ row["Product"] }}</a></td>
+                            <td>
+                                <div class="product-cell">
+                                    <img class="product-thumb" src="{{ row.ImageUrl }}" alt="{{ row['Product'] }}">
+                                    <div class="product-copy">
+                                        <a class="product-link" href="{{ url_for('product_details', product_slug=row.ProductSlug) }}">{{ row["Product"] }}</a>
+                                        <span class="product-category">{{ row["Category"] }}</span>
+                                    </div>
+                                </div>
+                            </td>
                             <td class="price">{{ row.PriceValue|naira }}</td>
                             <td>{{ row["Date Checked"] }}</td>
                         </tr>

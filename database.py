@@ -26,6 +26,11 @@ def initialize_database():
         )
     """)
 
+    cursor.execute("PRAGMA table_info(products)")
+    product_columns = [row["name"] for row in cursor.fetchall()]
+    if "image_url" not in product_columns:
+        cursor.execute("ALTER TABLE products ADD COLUMN image_url TEXT")
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS listings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,12 +71,12 @@ def get_product(brand, model, category):
     return row["id"] if row else None
 
 
-def create_product(brand, model, category):
+def create_product(brand, model, category, image_url=None):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO products (brand, model, category) VALUES (?, ?, ?)",
-        (brand, model, category)
+        "INSERT INTO products (brand, model, category, image_url) VALUES (?, ?, ?, ?)",
+        (brand, model, category, image_url)
     )
     conn.commit()
     product_id = cursor.lastrowid
@@ -79,11 +84,11 @@ def create_product(brand, model, category):
     return product_id
 
 
-def get_or_create_product(brand, model, category):
+def get_or_create_product(brand, model, category, image_url=None):
     product_id = get_product(brand, model, category)
     if product_id:
         return product_id
-    return create_product(brand, model, category)
+    return create_product(brand, model, category, image_url)
 
 
 def save_listing(product_id, store, product_name, product_url, price, availability, checked_at):
@@ -130,7 +135,8 @@ def get_all_listings_with_products():
             listings.product_name,
             listings.price,
             listings.checked_at,
-            products.category
+            products.category,
+            products.image_url
         FROM listings
         JOIN products ON listings.product_id = products.id
         ORDER BY listings.price ASC

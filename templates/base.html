@@ -47,6 +47,10 @@
         .count { text-align: center; color: #8a99ab; font-size: 13px; margin-top: 12px; }
         .product-link { color: #0d7c66; text-decoration: underline; text-underline-offset: 3px; font-weight: 700; }
         .product-link:hover { color: #0d7c66; text-decoration: underline; }
+        .product-cell { display: flex; align-items: center; gap: 14px; min-width: 280px; }
+        .product-thumb { width: 100px; height: 100px; flex: 0 0 100px; object-fit: cover; border-radius: 8px; border: 1px solid #dce4eb; background: #f8fafb; }
+        .product-copy { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+        .product-category { color: #8a99ab; font-size: 12px; }
         .view-toggle { display: flex; gap: 0; border: 1px solid #d4dce4; border-radius: 5px; overflow: hidden; }
         .view-toggle a { padding: 8px 16px; font-size: 13px; color: #3c4a5c; text-decoration: none; background: white; }
         .view-toggle a.active { background: #0d7c66; color: white; font-weight: 600; }
@@ -68,6 +72,8 @@
         .compare-row .product-name { font-size: 13px; color: #3c4a5c; max-width: 420px; }
         .compare-badge { font-size: 10px; font-weight: 700; color: #0d7c66; background: #d7f0ea; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
         .detail-header { background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; padding: 22px; margin-bottom: 18px; }
+        .detail-hero { display: grid; grid-template-columns: minmax(260px, 350px) minmax(0, 1fr); gap: 28px; align-items: center; }
+        .detail-image { width: 100%; max-width: 350px; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 12px; border: 1px solid #dce4eb; background: #f8fafb; }
         .back-link { color: #0d7c66; text-decoration: none; font-size: 13px; font-weight: 700; }
         .detail-header h1 { margin: 12px 0 8px; font-size: 28px; line-height: 1.2; }
         .detail-meta { color: #8a99ab; font-size: 13px; }
@@ -84,6 +90,8 @@
             .sidebar { width: 100%; min-height: 0; border-right: none; border-bottom: 1px solid #e3e8ee; }
             .main { padding: 20px; }
             .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .detail-hero { grid-template-columns: 1fr; }
+            .detail-image { max-width: 100%; }
             .compare-row { align-items: flex-start; flex-direction: column; }
         }
     </style>

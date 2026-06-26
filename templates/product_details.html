@@ -7,10 +7,15 @@
 <div class="layout">
     <div class="main" style="max-width: 1180px; margin: 0 auto;">
         <div class="detail-header">
-            <a class="back-link" href="{{ url_for('home') }}">&laquo; Back to products</a>
-            <h1>{{ product["Product"] }}</h1>
-            <div class="detail-meta">
-                {{ product["Category"] }}{% if product["Brand"] != "Other" %} - {{ product["Brand"] }}{% endif %}
+            <div class="detail-hero">
+                <img class="detail-image" src="{{ product.ImageUrl }}" alt="{{ product['Product'] }}">
+                <div>
+                    <a class="back-link" href="{{ url_for('home') }}">&laquo; Back to products</a>
+                    <h1>{{ product["Product"] }}</h1>
+                    <div class="detail-meta">
+                        {{ product["Category"] }}{% if product["Brand"] != "Other" %} - {{ product["Brand"] }}{% endif %}
+                    </div>
+                </div>
             </div>
         </div>
 
