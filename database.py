@@ -49,11 +49,21 @@ def initialize_database():
         CREATE TABLE IF NOT EXISTS price_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             listing_id INTEGER,
+            product_id INTEGER,
+            store TEXT,
             price INTEGER,
             checked_at TEXT,
-            FOREIGN KEY(listing_id) REFERENCES listings(id)
+            FOREIGN KEY(listing_id) REFERENCES listings(id),
+            FOREIGN KEY(product_id) REFERENCES products(id)
         )
     """)
+
+    cursor.execute("PRAGMA table_info(price_history)")
+    price_history_columns = [row["name"] for row in cursor.fetchall()]
+    if "product_id" not in price_history_columns:
+        cursor.execute("ALTER TABLE price_history ADD COLUMN product_id INTEGER")
+    if "store" not in price_history_columns:
+        cursor.execute("ALTER TABLE price_history ADD COLUMN store TEXT")
 
     conn.commit()
     conn.close()
@@ -104,12 +114,12 @@ def save_listing(product_id, store, product_name, product_url, price, availabili
     return listing_id
 
 
-def save_price_history(listing_id, price, checked_at):
+def save_price_history(listing_id, price, checked_at, product_id=None, store=None):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO price_history (listing_id, price, checked_at) VALUES (?, ?, ?)",
-        (listing_id, price, checked_at)
+        "INSERT INTO price_history (listing_id, product_id, store, price, checked_at) VALUES (?, ?, ?, ?, ?)",
+        (listing_id, product_id, store, price, checked_at)
     )
     conn.commit()
     conn.close()
@@ -144,3 +154,80 @@ def get_all_listings_with_products():
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+
+def get_price_history_for_product(product_id, limit=200):
+    """
+    Returns every recorded price-history row for a product, newest first.
+    Falls back gracefully if a row predates the store/product_id columns
+    (older rows may have NULL store - those are simply omitted, since we
+    can't know which store they belonged to).
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT store, price, checked_at
+        FROM price_history
+        WHERE product_id = ? AND store IS NOT NULL
+        ORDER BY checked_at DESC
+        LIMIT ?
+    """, (product_id, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_price_stats_for_product(product_id):
+    """
+    Returns aggregate price statistics for a product, computed entirely
+    in SQL (not by looping over rows in Python) for performance.
+    Returns None if there is no history at all for this product.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT
+            MIN(price) AS lowest_ever,
+            MAX(price) AS highest_ever,
+            AVG(price) AS average_price,
+            COUNT(*) AS record_count,
+            COUNT(DISTINCT store) AS store_count,
+            MIN(checked_at) AS first_seen,
+            MAX(checked_at) AS last_updated
+        FROM price_history
+        WHERE product_id = ? AND store IS NOT NULL
+    """, (product_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row or row["record_count"] == 0:
+        return None
+
+    return {
+        "lowest_ever": row["lowest_ever"],
+        "highest_ever": row["highest_ever"],
+        "average_price": round(row["average_price"]) if row["average_price"] is not None else None,
+        "record_count": row["record_count"],
+        "store_count": row["store_count"],
+        "first_seen": row["first_seen"],
+        "last_updated": row["last_updated"],
+    }
+
+
+def get_first_recorded_price_for_product(product_id):
+    """
+    Returns the price and date of the very first recorded entry for this
+    product, used to compute the price-change-since-first-seen indicator.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT price, checked_at
+        FROM price_history
+        WHERE product_id = ? AND store IS NOT NULL
+        ORDER BY checked_at ASC
+        LIMIT 1
+    """, (product_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None

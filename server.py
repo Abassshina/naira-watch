@@ -15,10 +15,14 @@ from urllib.parse import quote, unquote
 from database import (
     initialize_database,
     get_or_create_product,
+    get_product,
     save_listing,
     save_price_history,
     clear_all_listings,
     get_all_listings_with_products,
+    get_price_history_for_product,
+    get_price_stats_for_product,
+    get_first_recorded_price_for_product,
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -132,6 +136,25 @@ def format_naira(value):
     return f"₦{int(value):,}"
 
 
+def compute_price_change(current_price, first_price):
+    """
+    Returns a dict describing how price has moved since the first
+    recorded entry, used to render the green/red/grey change indicator.
+    Returns None if there's nothing to compare against.
+    """
+    if current_price is None or first_price is None:
+        return None
+
+    difference = current_price - first_price
+
+    if difference < 0:
+        return {"direction": "down", "amount": abs(difference), "css_class": "price-down"}
+    elif difference > 0:
+        return {"direction": "up", "amount": difference, "css_class": "price-up"}
+    else:
+        return {"direction": "none", "amount": 0, "css_class": "price-flat"}
+
+
 def slugify_product_name(name):
     slug = name.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
@@ -139,7 +162,163 @@ def slugify_product_name(name):
     return quote(slug or "product")
 
 
-def extract_model_key(name):
+def extract_ram(name):
+    """
+    Returns RAM as a normalized string like '4GB', or None if not found.
+    Looks for explicit 'RAM' labeling first, then falls back to the
+    common Nigerian-listing shorthand 'XGB + YGB' where the first
+    (smaller) number is conventionally RAM.
+    """
+    lower = name.lower()
+    match = re.search(r"(\d+)\s*gb\s*ram", lower)
+    if match:
+        return f"{match.group(1)}GB"
+    match = re.search(r"ram[:\s]+(\d+)\s*gb", lower)
+    if match:
+        return f"{match.group(1)}GB"
+    match = re.search(r"(\d+)\s*gb\s*[+/]\s*(\d+)\s*(gb|tb)", lower)
+    if match:
+        first_amount = int(match.group(1))
+        second_amount = int(match.group(2))
+        if first_amount <= 24 and first_amount <= second_amount:
+            return f"{first_amount}GB"
+    return None
+
+
+def extract_storage(name):
+    """
+    Returns storage as a normalized string like '128GB' or '1TB', or None.
+    Prefers explicit 'ROM' labeling, then the 'XGB+YGB' shorthand
+    (storage = second number), then falls back to any remaining size
+    mentioned that wasn't already claimed as RAM.
+    """
+    lower = name.lower()
+
+    match = re.search(r"(\d+)\s*(gb|tb)\s*rom", lower)
+    if match:
+        return f"{match.group(1)}{match.group(2).upper()}"
+    match = re.search(r"rom[:\s]+(\d+)\s*(gb|tb)", lower)
+    if match:
+        return f"{match.group(1)}{match.group(2).upper()}"
+
+    match = re.search(r"(\d+)\s*gb\s*[+/]\s*(\d+)\s*(gb|tb)", lower)
+    if match:
+        first_amount = int(match.group(1))
+        second_amount = int(match.group(2))
+        if first_amount <= 24 and first_amount <= second_amount:
+            return f"{second_amount}{match.group(3).upper()}"
+
+    sizes = re.findall(r"(\d+)\s*(gb|tb)\b", lower)
+    ram = extract_ram(name)
+    if len(sizes) >= 1:
+        for amount, unit in sizes:
+            candidate = f"{amount}{unit.upper()}"
+            if candidate != ram:
+                return candidate
+    return None
+
+
+# Noise phrases/words that should never affect product matching, since
+# they describe the listing/sale terms rather than the product itself.
+MATCH_NOISE_PHRASES = [
+    "official warranty", "brand new", "factory unlocked", "global version",
+    "nigerian version", "new arrival", "latest model", "android phone",
+    "mobile phone", "smartphone", "dual sim", "single sim", "unlocked",
+]
+MATCH_NOISE_WORDS = ["lte", "4g", "5g", "nfc", "esim", "sim"]
+MATCH_COLOR_PHRASES = ["light blue", "dark blue", "light green", "dark green", "rose gold"]
+MATCH_COLORS = ["black", "blue", "gold", "white", "silver", "green", "grey", "gray",
+                "purple", "orange", "red", "pink", "dusk", "velvet", "charcoal",
+                "midnight", "starlight", "graphite", "titanium", "lavender"]
+MATCH_BRAND_WORDS = ["apple", "iphone", "samsung", "galaxy", "tecno", "infinix", "xiaomi",
+                      "redmi", "poco", "itel", "nokia", "oukitel", "honor", "huawei",
+                      "google", "pixel", "nubia", "oppo", "vivo", "realme",
+                      "hp", "dell", "lenovo", "asus", "acer", "msi", "microsoft", "lg"]
+
+
+def clean_model_text(name):
+    """
+    Strips noise phrases, RAM/storage numbers, colors, and brand words,
+    leaving just the model identifier text (e.g. 'a06', 'note 40 pro').
+
+    Only the part of the name BEFORE a '+' bundle separator is used,
+    since text after '+' is typically a bundled freebie (e.g. "+ Free
+    Case") rather than part of the actual product/model name.
+    """
+    main_part = name.split("+")[0]
+    lower = " " + main_part.lower() + " "
+
+    for phrase in MATCH_NOISE_PHRASES:
+        lower = lower.replace(phrase, " ")
+
+    lower = re.sub(r'\d+\.\d+["\']?\s*(inch(es)?)?', " ", lower)
+    lower = re.sub(r"\d+\s*(gb|mb|tb)\s*ram", " ", lower)
+    lower = re.sub(r"\d+\s*(gb|tb)\s*rom", " ", lower)
+    lower = re.sub(r"ram[:\s]+\d+\s*(gb|mb)", " ", lower)
+    lower = re.sub(r"rom[:\s]+\d+\s*(gb|tb)", " ", lower)
+    lower = re.sub(r"\d+\s*(gb|tb)\b", " ", lower)
+    lower = re.sub(r"\bram\b", " ", lower)
+    lower = re.sub(r"\brom\b", " ", lower)
+
+    for word in MATCH_NOISE_WORDS:
+        lower = re.sub(r"\b" + re.escape(word) + r"\b", " ", lower)
+
+    for phrase in MATCH_COLOR_PHRASES:
+        lower = lower.replace(phrase, " ")
+    for color in MATCH_COLORS:
+        lower = re.sub(r"\b" + color + r"\b", " ", lower)
+
+    for bw in MATCH_BRAND_WORDS:
+        lower = re.sub(r"\b" + bw + r"\b", " ", lower)
+
+    lower = re.sub(r"[^a-z0-9\s]", " ", lower)
+    lower = re.sub(r"\s+", " ", lower).strip()
+    return lower
+
+
+def extract_model(name):
+    """Returns up to 3 significant words of the cleaned model text."""
+    cleaned = clean_model_text(name)
+    words = cleaned.split()[:3]
+    return " ".join(words) if words else None
+
+
+def detect_device_type(name, category_hint=None):
+    """Returns the device type bucket used for matching."""
+    if is_watch(name):
+        return "Watch"
+    if is_audio(name):
+        return "Audio"
+    if is_accessory(name):
+        return "Accessory"
+    if category_hint:
+        hint = category_hint.lower()
+        if "laptop" in hint:
+            return "Laptop"
+        if "tablet" in hint:
+            return "Tablet"
+        if "watch" in hint:
+            return "Watch"
+        if "audio" in hint:
+            return "Audio"
+        if "accessor" in hint:
+            return "Accessory"
+        if "phone" in hint:
+            return "Phone"
+    return "Other"
+
+
+def extract_product_attributes(name, category_hint=None):
+    """
+    Parses a product name into its matching attributes (brand, model,
+    RAM, storage, device type) in a single pass. Returns None for
+    accessories or names with no recognizable brand.
+
+    To add a new matching attribute later (color, processor, screen
+    size, etc.): write an extract_<attribute>(name) function following
+    the pattern of extract_ram/extract_storage above, then include its
+    result in this dict and in build_group_key() below.
+    """
     if is_accessory(name):
         return None
 
@@ -147,38 +326,85 @@ def extract_model_key(name):
     if not brand:
         return None
 
-    lower = " " + name.lower() + " "
-    lower = re.sub(r'\d+\.\d+["\']?\s*(inch(es)?)?', " ", lower)
-
-    stop_words = [
-        r"\d+\s*gb", r"\d+\s*mb", r"\d+\s*tb", r"ram", r"rom",
-        r"dual\s*sim", r"single\s*sim", r"\bsim\b", r"\be[\-\s]?sim\b",
-        r"\b5g\b", r"\b4g\b", r"\blte\b", r"android\s*\d+",
-        r"light\s*blue", r"dark\s*blue", r"light\s*green", r"dark\s*green",
-        r"\bblack\b", r"\bblue\b", r"\bgold\b", r"\bwhite\b", r"\bsilver\b",
-        r"\bgreen\b", r"\bgrey\b", r"\bgray\b", r"\bpurple\b", r"\borange\b",
-        r"\bred\b", r"\bpink\b", r"\bdusk\b", r"\bvelvet\b",
-        r"\bdisplay\b", r"\bamoled\b", r"\bips\b", r"\bhd\+?\b", r"\bfhd\+?\b",
-        r"\d+hz\b", r"\(.*?\)",
-    ]
-    for pattern in stop_words:
-        lower = re.sub(pattern, " ", lower)
-
-    brand_words = ["apple", "iphone", "samsung", "galaxy", "tecno", "infinix", "xiaomi",
-                   "redmi", "poco", "itel", "nokia", "oukitel", "honor", "huawei",
-                   "google", "pixel", "nubia", "oppo", "vivo", "realme"]
-    for brand_word in brand_words:
-        lower = re.sub(r"\b" + brand_word + r"\b", " ", lower)
-
-    lower = re.sub(r"[^a-z0-9\s]", " ", lower)
-    lower = re.sub(r"\s+", " ", lower).strip()
-
-    words = lower.split()[:2]
-    model_part = " ".join(words)
-
-    if not model_part or len(model_part) < 2:
+    model = extract_model(name)
+    if not model:
         return None
-    return f"{brand}|{model_part}"
+
+    return {
+        "brand": brand,
+        "model": model,
+        "ram": extract_ram(name),
+        "storage": extract_storage(name),
+        "device_type": detect_device_type(name, category_hint),
+    }
+
+
+def build_group_key(attributes):
+    """
+    Primary grouping key (brand+model+storage+device_type), deliberately
+    excluding RAM so that listings with unspecified RAM can still join a
+    group - RAM is reconciled separately in group_products_by_match().
+    """
+    return f"{attributes['brand']}|{attributes['model']}|{attributes['storage'] or '—'}|{attributes['device_type']}"
+
+
+def build_canonical_key(name, category_hint=None):
+    """Full display key including RAM, e.g. 'Samsung|Galaxy A06|4GB|64GB|Phone'."""
+    attributes = extract_product_attributes(name, category_hint)
+    if not attributes:
+        return None
+    ram = attributes["ram"] or "—"
+    return f"{attributes['brand']}|{attributes['model']}|{ram}|{attributes['storage'] or '—'}|{attributes['device_type']}"
+
+
+def group_products_by_match(items, name_field="Product", category_field="Category"):
+    """
+    Groups product rows into matching configurations (same brand, model,
+    storage, and device type). RAM is treated as a soft signal: items
+    with unspecified RAM act as a wildcard and join whichever single
+    RAM variant exists for that model+storage. If multiple distinct RAM
+    variants exist for the same model+storage, RAM-unspecified items are
+    NOT guessed into one of them - they form their own group instead,
+    to avoid incorrectly merging different configurations.
+
+    Returns a list of groups, each a list of the original row dicts.
+    Rows that can't be parsed (no brand, or accessories) are dropped.
+    """
+    primary_buckets = {}
+    for item in items:
+        name = item[name_field]
+        category_hint = item.get(category_field) if category_field else None
+        attributes = extract_product_attributes(name, category_hint)
+        if not attributes:
+            continue
+        primary_key = build_group_key(attributes)
+        primary_buckets.setdefault(primary_key, []).append((item, attributes))
+
+    final_groups = []
+    for primary_key, bucketed_items in primary_buckets.items():
+        ram_known_groups = {}
+        ram_unknown_items = []
+
+        for item, attributes in bucketed_items:
+            if attributes["ram"]:
+                ram_known_groups.setdefault(attributes["ram"], []).append(item)
+            else:
+                ram_unknown_items.append(item)
+
+        if not ram_known_groups:
+            if ram_unknown_items:
+                final_groups.append(ram_unknown_items)
+        elif len(ram_known_groups) == 1:
+            only_group = next(iter(ram_known_groups.values()))
+            only_group.extend(ram_unknown_items)
+            final_groups.append(only_group)
+        else:
+            for group in ram_known_groups.values():
+                final_groups.append(group)
+            if ram_unknown_items:
+                final_groups.append(ram_unknown_items)
+
+    return final_groups
 
 
 app.jinja_env.filters["naira"] = format_naira
@@ -519,7 +745,7 @@ def run_scraper():
                     availability="In Stock",
                     checked_at=now_str,
                 )
-                save_price_history(listing_id, item["price"], now_str)
+                save_price_history(listing_id, item["price"], now_str, product_id=product_id, store=item["store"])
                 db_saved_count += 1
             print(f"Scraper finished: saved {db_saved_count} results to database")
         except Exception as e:
@@ -639,20 +865,10 @@ def home():
     # ---------- BUILD COMPARISON GROUPS (for "Compare" view) ----------
     comparison_groups = []
     if view_mode == "compare":
-        groups = {}
-        group_order = []
-        for r in filtered_rows:
-            model_key = extract_model_key(r["Product"])
-            if not model_key:
-                continue
-            if model_key not in groups:
-                groups[model_key] = []
-                group_order.append(model_key)
-            groups[model_key].append(r)
+        matched_groups = group_products_by_match(filtered_rows, name_field="Product", category_field="Category")
 
         # Only keep groups with 2+ stores represented - that's the whole point of "compare"
-        for key in group_order:
-            items = groups[key]
+        for items in matched_groups:
             stores_in_group = set(item["Store"] for item in items)
             if len(stores_in_group) >= 2:
                 items_sorted = sorted(items, key=lambda x: int(x["Price (NGN)"]))
@@ -662,7 +878,6 @@ def home():
                 average_price = sum(prices) // len(prices)
                 savings = highest_price - lowest_price
                 comparison_groups.append({
-                    "key": key,
                     "display_name": items_sorted[0]["Product"],
                     "product_slug": items_sorted[0]["ProductSlug"],
                     "items": items_sorted,
@@ -711,13 +926,15 @@ def product_details(product_slug):
     if not selected_row:
         abort(404)
 
-    model_key = extract_model_key(selected_row["Product"])
-    if model_key:
-        product_rows = [
-            row for row in rows
-            if extract_model_key(row["Product"]) == model_key
-        ]
-    else:
+    matched_groups = group_products_by_match(rows, name_field="Product", category_field="Category")
+    product_rows = next(
+        (group for group in matched_groups if selected_row in group),
+        None,
+    )
+    if not product_rows:
+        # Selected product had no recognizable brand/model (e.g. an
+        # accessory) - fall back to exact name matching so the page
+        # still works instead of showing nothing.
         product_rows = [
             row for row in rows
             if row["Product"].strip().lower() == selected_row["Product"].strip().lower()
@@ -734,6 +951,28 @@ def product_details(product_slug):
     average_price = round(sum(prices) / len(prices))
     last_updated = max((row["Date Checked"] for row in product_rows if row.get("Date Checked")), default="Not available")
 
+    # ---------- PHASE 3: PRICE INTELLIGENCE ----------
+    # Look up this exact product's database id so we can query its
+    # historical price_history records. We use the cheapest store's
+    # listing as the canonical (brand, model, category) key, since that's
+    # exactly how run_scraper() saved it via get_or_create_product().
+    canonical_row = product_rows[0]
+    canonical_brand = extract_brand(canonical_row["Product"]) or "Other"
+    product_id = get_product(canonical_brand, canonical_row["Product"], canonical_row["Category"])
+
+    price_stats = None
+    price_history = []
+    price_change = None
+    first_seen = "Not available"
+
+    if product_id:
+        price_stats = get_price_stats_for_product(product_id)
+        price_history = get_price_history_for_product(product_id)
+        first_record = get_first_recorded_price_for_product(product_id)
+        if first_record:
+            first_seen = price_stats["first_seen"] if price_stats else first_record["checked_at"]
+            price_change = compute_price_change(lowest_price, first_record["price"])
+
     return render_template(
         "product_details.html",
         product=selected_row,
@@ -742,6 +981,10 @@ def product_details(product_slug):
         highest_price=highest_price,
         average_price=average_price,
         last_updated=last_updated,
+        price_stats=price_stats,
+        price_history=price_history,
+        price_change=price_change,
+        first_seen=first_seen,
     )
 
 

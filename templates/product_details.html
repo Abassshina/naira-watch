@@ -21,20 +21,31 @@
 
         <div class="stats-grid">
             <div class="summary-card">
-                <div class="label">Lowest Price</div>
+                <div class="label">Current Price</div>
                 <div class="value lowest">{{ lowest_price|naira }}</div>
+                {% if price_change %}
+                    <div class="change-indicator {{ price_change.css_class }}">
+                        {% if price_change.direction == "down" %}
+                            &darr; {{ price_change.amount|naira }} since first recorded
+                        {% elif price_change.direction == "up" %}
+                            &uarr; {{ price_change.amount|naira }} since first recorded
+                        {% else %}
+                            No price change recorded
+                        {% endif %}
+                    </div>
+                {% endif %}
             </div>
             <div class="summary-card">
-                <div class="label">Highest Price</div>
-                <div class="value">{{ highest_price|naira }}</div>
+                <div class="label">Lowest Ever Price</div>
+                <div class="value lowest">{{ (price_stats.lowest_ever if price_stats else lowest_price)|naira }}</div>
             </div>
             <div class="summary-card">
-                <div class="label">Average Price</div>
-                <div class="value">{{ average_price|naira }}</div>
+                <div class="label">Highest Ever Price</div>
+                <div class="value">{{ (price_stats.highest_ever if price_stats else highest_price)|naira }}</div>
             </div>
             <div class="summary-card">
-                <div class="label">Last Updated</div>
-                <div class="value" style="font-size:16px;">{{ last_updated }}</div>
+                <div class="label">Average Price (All-Time)</div>
+                <div class="value">{{ (price_stats.average_price if price_stats else average_price)|naira }}</div>
             </div>
         </div>
 
@@ -55,6 +66,50 @@
                 </tr>
             {% endfor %}
         </table>
+
+        {% if price_stats %}
+            <h2 class="section-title">Price History</h2>
+            <div class="history-meta-row">
+                <div class="history-meta-item">
+                    <span class="history-meta-label">First Seen</span>
+                    <span class="history-meta-value">{{ first_seen }}</span>
+                </div>
+                <div class="history-meta-item">
+                    <span class="history-meta-label">Last Updated</span>
+                    <span class="history-meta-value">{{ price_stats.last_updated }}</span>
+                </div>
+                <div class="history-meta-item">
+                    <span class="history-meta-label">Price Records</span>
+                    <span class="history-meta-value">{{ price_stats.record_count }}</span>
+                </div>
+                <div class="history-meta-item">
+                    <span class="history-meta-label">Stores Tracked</span>
+                    <span class="history-meta-value">{{ price_stats.store_count }}</span>
+                </div>
+            </div>
+
+            {% if price_history %}
+                <table>
+                    <tr>
+                        <th>Date</th>
+                        <th>Store</th>
+                        <th>Price</th>
+                    </tr>
+                    {% for entry in price_history %}
+                        <tr>
+                            <td>{{ entry.checked_at }}</td>
+                            <td><span class="store-tag tag-{{ entry.store }}">{{ entry.store }}</span></td>
+                            <td class="price">{{ entry.price|naira }}</td>
+                        </tr>
+                    {% endfor %}
+                </table>
+            {% else %}
+                <div class="empty">No detailed price history records yet - check back after the next few scrapes.</div>
+            {% endif %}
+        {% else %}
+            <h2 class="section-title">Price History</h2>
+            <div class="empty">Price history is still building up for this product. Check back after a few scraper refreshes.</div>
+        {% endif %}
     </div>
 </div>
 {% endblock %}
