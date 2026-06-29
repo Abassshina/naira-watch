@@ -95,10 +95,29 @@ def create_product(brand, model, category, image_url=None):
 
 
 def get_or_create_product(brand, model, category, image_url=None):
-    product_id = get_product(brand, model, category)
-    if product_id:
-        return product_id
-    return create_product(brand, model, category, image_url)
+    """
+    Atomically gets or creates a product. Uses INSERT OR IGNORE rather
+    than a separate SELECT-then-INSERT, so this is safe even if the
+    background scraper thread and a web request (or two near-simultaneous
+    scrape entries for the same product from different stores) happen to
+    touch the database at close to the same time - the UNIQUE constraint
+    on (brand, model, category) is enforced by SQLite itself, and IGNORE
+    means a duplicate attempt simply does nothing instead of crashing.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR IGNORE INTO products (brand, model, category, image_url) VALUES (?, ?, ?, ?)",
+        (brand, model, category, image_url)
+    )
+    conn.commit()
+    cursor.execute(
+        "SELECT id FROM products WHERE brand = ? AND model = ? AND category = ?",
+        (brand, model, category)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return row["id"] if row else None
 
 
 def save_listing(product_id, store, product_name, product_url, price, availability, checked_at):

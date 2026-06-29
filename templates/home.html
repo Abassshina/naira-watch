@@ -5,44 +5,73 @@
 
 {% block body %}
 <div class="layout">
-    <div class="sidebar">
-        <h4>Categories</h4>
-        <a class="cat-link {% if not selected_category %}active{% endif %}" href="{{ page_link(1, category='') }}">All</a>
-        {% for category in all_categories %}
-            <a class="cat-link {% if category == selected_category %}active{% endif %}" href="{{ page_link(1, category=category) }}">
-                {{ category }}
-                <span class="cat-count">{{ category_counts[category] }}</span>
-            </a>
-        {% endfor %}
-    </div>
+    <aside class="sidebar" id="sidebarPanel">
+        <details class="sidebar-section" open>
+            <summary>Categories <span class="chevron">&#9656;</span></summary>
+            <div class="sidebar-section-body">
+                <a class="cat-link {% if not selected_category %}active{% endif %}" href="{{ page_link(1, category='') }}">All</a>
+                {% for category in all_categories %}
+                    <a class="cat-link {% if category == selected_category %}active{% endif %}" href="{{ page_link(1, category=category) }}">
+                        {{ category }}
+                        <span class="cat-count">{{ category_counts[category] }}</span>
+                    </a>
+                {% endfor %}
+            </div>
+        </details>
+
+        <details class="sidebar-section">
+            <summary>Stores <span class="chevron">&#9656;</span></summary>
+            <div class="sidebar-section-body">
+                <form method="get" action="{{ url_for('home') }}" id="storeFilterForm">
+                    <input type="hidden" name="category" value="{{ selected_category }}">
+                    <input type="hidden" name="brand" value="{{ selected_brand }}">
+                    <input type="hidden" name="view" value="{{ view_mode }}">
+                    <input type="hidden" name="search" value="{{ search_query }}">
+                    <input type="hidden" name="max_price" value="{{ max_price }}">
+                    {% for store in all_stores %}
+                        <label class="sidebar-check-row">
+                            <input type="checkbox" name="store" value="{{ store }}" onchange="document.getElementById('storeFilterForm').submit()" {% if store in selected_stores %}checked{% endif %}>
+                            {{ store }}
+                        </label>
+                    {% endfor %}
+                </form>
+            </div>
+        </details>
+
+        <details class="sidebar-section">
+            <summary>Brands <span class="chevron">&#9656;</span></summary>
+            <div class="sidebar-section-body">
+                <a class="cat-link {% if not selected_brand %}active{% endif %}" href="{{ page_link(1, brand='') }}">All</a>
+                {% for brand in all_brands %}
+                    <a class="cat-link {% if brand == selected_brand %}active{% endif %}" href="{{ page_link(1, brand=brand) }}">{{ brand }}</a>
+                {% endfor %}
+            </div>
+        </details>
+    </aside>
+
+    <div class="sidebar-backdrop" onclick="document.getElementById('sidebarPanel').classList.remove('open'); this.classList.remove('visible');"></div>
 
     <div class="main">
+        <button type="button" class="mobile-filter-toggle" onclick="document.getElementById('sidebarPanel').classList.add('open'); document.querySelector('.sidebar-backdrop').classList.add('visible');">
+            &#9776; Filters
+        </button>
+
         <form class="filters" method="get" action="{{ url_for('home') }}">
             <input type="hidden" name="category" value="{{ selected_category }}">
+            <input type="hidden" name="brand" value="{{ selected_brand }}">
             <input type="hidden" name="view" value="{{ view_mode }}">
+            {% for store in selected_stores %}<input type="hidden" name="store" value="{{ store }}">{% endfor %}
             <div class="filter-row">
-                <input type="text" name="search" placeholder="Search products..." value="{{ search_query }}">
-                <select name="brand">
-                    <option value="">All brands</option>
-                    {% for brand in all_brands %}
-                        <option value="{{ brand }}" {% if brand == selected_brand %}selected{% endif %}>{{ brand }}</option>
-                    {% endfor %}
-                </select>
-                <input type="number" name="max_price" placeholder="Max price (NGN)" value="{{ max_price }}">
+                <label for="searchInput" class="visually-hidden">Search products</label>
+                <input type="text" id="searchInput" name="search" placeholder="Search products..." value="{{ search_query }}">
+                <label for="maxPriceInput" class="visually-hidden">Maximum price</label>
+                <input type="number" id="maxPriceInput" name="max_price" placeholder="Maximum price (NGN)" value="{{ max_price }}">
                 <button type="submit">Apply</button>
                 <a class="clear" href="{{ url_for('home') }}">Clear</a>
-                <div class="view-toggle">
+                <div class="view-toggle" role="group" aria-label="View mode">
                     <a class="{% if view_mode == 'list' %}active{% endif %}" href="{{ page_link(1, view='list') }}">List</a>
                     <a class="{% if view_mode == 'compare' %}active{% endif %}" href="{{ page_link(1, view='compare') }}">Compare</a>
                 </div>
-            </div>
-            <div class="store-row">
-                <span style="font-size:13px; color:#8a99ab;">Stores:</span>
-                {% for store in all_stores %}
-                    <label class="store-check">
-                        <input type="checkbox" name="store" value="{{ store }}" {% if store in selected_stores %}checked{% endif %}> {{ store }}
-                    </label>
-                {% endfor %}
             </div>
         </form>
 
@@ -76,11 +105,21 @@
                             <div class="compare-row {% if loop.first %}cheapest{% endif %}">
                                 <div class="left">
                                     <span class="store-tag tag-{{ item['Store'] }}">{{ item["Store"] }}</span>
-                                    <img class="product-thumb" src="{{ item.ImageUrl }}" alt="{{ item['Product'] }}">
+                                    <img class="compare-thumb" src="{{ item.ImageUrl }}" alt="" loading="lazy">
                                     <a class="product-name product-link" href="{{ url_for('product_details', product_slug=item.ProductSlug) }}">{{ item["Product"] }}</a>
                                     {% if loop.first %}<span class="compare-badge">BEST PRICE</span>{% endif %}
                                 </div>
-                                <span class="price">{{ item.PriceValue|naira }}</span>
+                                <div class="right">
+                                    <span class="price">{{ item.PriceValue|naira }}</span>
+                                    {% if item.ProductUrl %}
+                                        <a class="visit-store-btn" href="{{ item.ProductUrl }}" target="_blank" rel="noopener noreferrer" aria-label="Visit {{ item['Store'] }} for {{ item['Product'] }}">
+                                            Visit Store
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H9M17 7V15"/></svg>
+                                        </a>
+                                    {% else %}
+                                        <span class="visit-store-btn unavailable" aria-disabled="true">Unavailable</span>
+                                    {% endif %}
+                                </div>
                             </div>
                         {% endfor %}
                     </div>
@@ -93,13 +132,15 @@
         {% else %}
             {% if page_rows %}
                 <table>
-                    <tr><th>Store</th><th>Product</th><th>Price</th><th>Checked</th></tr>
+                    <tr><th>Store</th><th>Product</th><th>Price</th><th>Checked</th><th>Actions</th></tr>
                     {% for row in page_rows %}
                         <tr class="{% if loop.index0 == 0 and current_page == 1 %}best{% endif %}">
                             <td><span class="store-tag tag-{{ row['Store'] }}">{{ row["Store"] }}</span></td>
                             <td>
                                 <div class="product-cell">
-                                    <img class="product-thumb" src="{{ row.ImageUrl }}" alt="{{ row['Product'] }}">
+                                    <a class="product-thumb-link" href="{{ url_for('product_details', product_slug=row.ProductSlug) }}">
+                                        <img class="product-thumb" src="{{ row.ImageUrl }}" alt="" loading="lazy">
+                                    </a>
                                     <div class="product-copy">
                                         <a class="product-link" href="{{ url_for('product_details', product_slug=row.ProductSlug) }}">{{ row["Product"] }}</a>
                                         <span class="product-category">{{ row["Category"] }}</span>
@@ -108,6 +149,21 @@
                             </td>
                             <td class="price">{{ row.PriceValue|naira }}</td>
                             <td>{{ row["Date Checked"] }}</td>
+                            <td>
+                                <div class="action-group">
+                                    <a class="details-btn" href="{{ url_for('product_details', product_slug=row.ProductSlug) }}" aria-label="View details for {{ row['Product'] }}">
+                                        Details
+                                    </a>
+                                    {% if row.ProductUrl %}
+                                        <a class="visit-store-btn" href="{{ row.ProductUrl }}" target="_blank" rel="noopener noreferrer" aria-label="Visit {{ row['Store'] }} for {{ row['Product'] }}">
+                                            Visit Store
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H9M17 7V15"/></svg>
+                                        </a>
+                                    {% else %}
+                                        <span class="visit-store-btn unavailable" aria-disabled="true">Unavailable</span>
+                                    {% endif %}
+                                </div>
+                            </td>
                         </tr>
                     {% endfor %}
                 </table>

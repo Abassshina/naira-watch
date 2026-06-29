@@ -10,7 +10,7 @@ from html import escape
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urljoin
 
 from database import (
     initialize_database,
@@ -108,6 +108,7 @@ def read_price_rows():
         row["ProductSlug"] = slugify_product_name(row["Product"])
         row["PriceValue"] = parse_price(row.get("Price (NGN)", ""))
         row["ImageUrl"] = resolve_product_image_url(row)
+        row["ProductUrl"] = str(row.get("Product URL") or "").strip()
     return rows
 
 
@@ -166,8 +167,12 @@ def extract_ram(name):
     """
     Returns RAM as a normalized string like '4GB', or None if not found.
     Looks for explicit 'RAM' labeling first, then falls back to the
-    common Nigerian-listing shorthand 'XGB + YGB' where the first
-    (smaller) number is conventionally RAM.
+    common 'XGB + YGB' shorthand. Different stores write this in
+    different orders (some RAM-first like '4GB+64GB', others
+    storage-first like '64GB+4GB'), so rather than assume position, we
+    treat whichever of the two numbers is smaller as RAM - a safe
+    assumption since RAM is essentially always smaller than storage on
+    real phones.
     """
     lower = name.lower()
     match = re.search(r"(\d+)\s*gb\s*ram", lower)
@@ -180,8 +185,9 @@ def extract_ram(name):
     if match:
         first_amount = int(match.group(1))
         second_amount = int(match.group(2))
-        if first_amount <= 24 and first_amount <= second_amount:
-            return f"{first_amount}GB"
+        if first_amount <= 24 or second_amount <= 24:
+            smaller = min(first_amount, second_amount)
+            return f"{smaller}GB"
     return None
 
 
@@ -205,8 +211,9 @@ def extract_storage(name):
     if match:
         first_amount = int(match.group(1))
         second_amount = int(match.group(2))
-        if first_amount <= 24 and first_amount <= second_amount:
-            return f"{second_amount}{match.group(3).upper()}"
+        if first_amount <= 24 or second_amount <= 24:
+            larger = max(first_amount, second_amount)
+            return f"{larger}{match.group(3).upper()}"
 
     sizes = re.findall(r"(\d+)\s*(gb|tb)\b", lower)
     ram = extract_ram(name)
@@ -225,7 +232,7 @@ MATCH_NOISE_PHRASES = [
     "nigerian version", "new arrival", "latest model", "android phone",
     "mobile phone", "smartphone", "dual sim", "single sim", "unlocked",
 ]
-MATCH_NOISE_WORDS = ["lte", "4g", "5g", "nfc", "esim", "sim"]
+MATCH_NOISE_WORDS = ["lte", "4g", "5g", "nfc", "esim", "sim", "android", "mobile", "smart", "phone", "with"]
 MATCH_COLOR_PHRASES = ["light blue", "dark blue", "light green", "dark green", "rose gold"]
 MATCH_COLORS = ["black", "blue", "gold", "white", "silver", "green", "grey", "gray",
                 "purple", "orange", "red", "pink", "dusk", "velvet", "charcoal",
@@ -247,6 +254,12 @@ def clean_model_text(name):
     """
     main_part = name.split("+")[0]
     lower = " " + main_part.lower() + " "
+
+    # Strip manufacturer-internal SKU/model codes that are hyphenated onto
+    # the model name (e.g. "A06-A065F" -> "A06", "Spark 50-KN4" -> "Spark 50").
+    # These codes are store-specific noise, not part of how shoppers
+    # actually search for or compare the model.
+    lower = re.sub(r"-[a-z]{1,3}\d{1,4}[a-z]?\b", " ", lower)
 
     for phrase in MATCH_NOISE_PHRASES:
         lower = lower.replace(phrase, " ")
@@ -466,6 +479,36 @@ def determine_category(name, page_category):
     return f"{brand}|{model_part}"
 
 
+def normalize_image_url(image_url, page_url):
+    """
+    Ensures an image URL is fully absolute, using Python's standard
+    urljoin to correctly resolve every relative URL form a site might
+    use: absolute 'https://...', protocol-relative '//cdn...',
+    site-root-relative '/wp-content/...', and parent-relative
+    '../../wp-content/...' paths (this last form needs the FULL page
+    URL it was found on, not just the domain, to resolve correctly -
+    that's the actual bug this replaces: gluing the domain directly onto
+    a '../' path produces a URL that looks valid but points nowhere).
+    """
+    if not image_url:
+        return None
+    if image_url.startswith("data:image"):
+        return None
+    return urljoin(page_url, image_url)
+
+
+def resolve_link(href, page_url):
+    """
+    Resolves a product link's href into a full absolute URL, using the
+    same urljoin logic as normalize_image_url (it works identically for
+    any relative URL, not just images) - kept as a separate name so the
+    intent is clear at each call site.
+    """
+    if not href:
+        return None
+    return urljoin(page_url, href)
+
+
 def fetch_with_hard_timeout(url, hard_seconds=20):
     def do_request():
         return requests.get(url, headers=headers, timeout=(5, 15))
@@ -506,19 +549,21 @@ def scrape_justfones_category(all_results, url_slug, category_label):
                     price_tag = product.find("span", class_="price")
                     name = name_tag.text.strip() if name_tag else None
                     price_text = price_tag.text.strip() if price_tag else None
+                    product_url = resolve_link(name_tag.get("href"), url) if name_tag else None
 
                     image_url = None
                     img_tag = product.find("img")
                     if img_tag:
                         # Magento sometimes lazy-loads images, with the real URL
                         # sitting in data-src/data-lazy-src instead of src.
-                        image_url = (
+                        raw_image_url = (
                             img_tag.get("src")
                             or img_tag.get("data-src")
                             or img_tag.get("data-lazy-src")
                         )
-                        if image_url and image_url.startswith("data:image"):
-                            image_url = img_tag.get("data-src") or img_tag.get("data-lazy-src")
+                        if raw_image_url and raw_image_url.startswith("data:image"):
+                            raw_image_url = img_tag.get("data-src") or img_tag.get("data-lazy-src")
+                        image_url = normalize_image_url(raw_image_url, url)
 
                     if name and price_text:
                         price_value = extract_first_price(price_text)
@@ -529,6 +574,7 @@ def scrape_justfones_category(all_results, url_slug, category_label):
                                 "store": "Justfones",
                                 "category": determine_category(name, category_label),
                                 "image_url": image_url,
+                                "product_url": product_url,
                             })
             else:
                 print(f"{tag}: page {page_num} not OK, stopping")
@@ -581,16 +627,23 @@ def scrape_pointek_category(all_results, url_slug, category_label):
                                 break
                     price_text = price_tag.get_text(strip=True) if price_tag else None
 
+                    product_url = None
+                    any_product_link = product.find("a", href=re.compile(r"/product/"))
+                    if any_product_link:
+                        product_url = resolve_link(any_product_link.get("href"), url)
+
                     image_url = None
                     img_tag = product.find("img")
                     if img_tag:
-                        image_url = (
+                        raw_image_url = (
                             img_tag.get("src")
                             or img_tag.get("data-src")
                             or img_tag.get("data-lazy-src")
                         )
-                        if image_url and image_url.startswith("data:image"):
-                            image_url = img_tag.get("data-src") or img_tag.get("data-lazy-src")
+                        if raw_image_url and raw_image_url.startswith("data:image"):
+                            raw_image_url = img_tag.get("data-src") or img_tag.get("data-lazy-src")
+                        image_url = normalize_image_url(raw_image_url, url)
+
 
                     if name and price_text and len(name) > 3:
                         price_value = extract_first_price(price_text)
@@ -601,6 +654,7 @@ def scrape_pointek_category(all_results, url_slug, category_label):
                                 "store": "Pointek",
                                 "category": determine_category(name, category_label),
                                 "image_url": image_url,
+                                "product_url": product_url,
                             })
             else:
                 print(f"{tag}: page {page_num} not OK, stopping")
@@ -611,6 +665,164 @@ def scrape_pointek_category(all_results, url_slug, category_label):
         page_num += 1
         time.sleep(1.5)
     print(f"{tag}: finished, total = {len([r for r in all_results if r['store']=='Pointek' and r['category']==category_label])}")
+
+
+def scrape_tokkahub_category(all_results, url_slug, category_label):
+    """
+    Generic scraper for any Tokka Hub (WoodMart theme, same as PhoneMart)
+    category page. Reuses the same div-based product selector already
+    proven to work for PhoneMart, since both sites use the same theme.
+    """
+    tag = f"TOKKAHUB {category_label.upper()}"
+    print(f"{tag}: starting")
+    page_num = 1
+    max_safety_pages = 40
+    while page_num <= max_safety_pages:
+        if page_num == 1:
+            url = f"https://tokkahub.com/product-category/{url_slug}/"
+        else:
+            url = f"https://tokkahub.com/product-category/{url_slug}/page/{page_num}/"
+        print(f"{tag}: fetching page {page_num}...")
+        response = fetch_with_hard_timeout(url, hard_seconds=20)
+        if response is None and page_num > 1:
+            # The /page/N/ path style redirect-loops on some WooCommerce
+            # permalink configurations - fall back to the older
+            # ?paged=N query-string style WordPress also supports.
+            fallback_url = f"https://tokkahub.com/product-category/{url_slug}/?paged={page_num}"
+            print(f"{tag}: retrying page {page_num} with ?paged= fallback...")
+            response = fetch_with_hard_timeout(fallback_url, hard_seconds=20)
+        if response is not None:
+            print(f"{tag}: page {page_num} status = {response.status_code}")
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, "html.parser")
+                products = soup.find_all("div", class_=lambda c: c and "product" in c.split())
+                print(f"{tag}: page {page_num} found {len(products)} cards")
+                if len(products) == 0:
+                    print(f"{tag}: page {page_num} empty, reached the end")
+                    break
+                for product in products:
+                    name_tag = product.find("h3") or product.find("h2")
+                    price_tag = product.find(class_=re.compile(r"^(price|woocommerce-Price-amount)"))
+                    name = None
+                    if name_tag:
+                        name = name_tag.get_text(strip=True)
+                    link_tag = product.find("a", class_="woocommerce-LoopProduct-link") or product.find("a", title=True)
+                    if not name and link_tag and link_tag.get("title"):
+                        name = link_tag.get("title").strip()
+                    price_text = price_tag.get_text(strip=True) if price_tag else None
+
+                    product_url = None
+                    any_link = link_tag or product.find("a", href=True)
+                    if any_link:
+                        product_url = resolve_link(any_link.get("href"), url)
+
+                    image_url = None
+                    img_tag = product.find("img")
+                    if img_tag:
+                        raw_image_url = img_tag.get("src") or img_tag.get("data-src")
+                        if raw_image_url and raw_image_url.startswith("data:image"):
+                            raw_image_url = img_tag.get("data-src")
+                        image_url = normalize_image_url(raw_image_url, url)
+
+                    if name and price_text and len(name) > 3:
+                        price_value = extract_first_price(price_text)
+                        if price_value:
+                            all_results.append({
+                                "name": name,
+                                "price": price_value,
+                                "store": "TokkaHub",
+                                "category": determine_category(name, category_label),
+                                "image_url": image_url,
+                                "product_url": product_url,
+                            })
+            else:
+                print(f"{tag}: page {page_num} not OK, stopping")
+                break
+        else:
+            print(f"{tag}: page {page_num} skipped (timeout), stopping")
+            break
+        page_num += 1
+        time.sleep(1.5)
+    print(f"{tag}: finished, total = {len([r for r in all_results if r['store']=='TokkaHub' and r['category']==category_label])}")
+
+
+def scrape_3chub_category(all_results, url_slug, category_label):
+    """
+    Generic scraper for any 3CHUB (Shopify) collection page.
+    Confirmed via direct inspection of real fetched HTML: each product
+    sits in <li class="grid-item">, with price in
+    <span class="price-item price-item-regular">, and the product name
+    is the visible text of the <a href="/products/..."> link.
+    """
+    tag = f"3CHUB {category_label.upper()}"
+    print(f"{tag}: starting")
+    page_num = 1
+    max_safety_pages = 40
+    while page_num <= max_safety_pages:
+        url = f"https://www.3chub.com/collections/{url_slug}" if page_num == 1 else f"https://www.3chub.com/collections/{url_slug}?page={page_num}"
+        print(f"{tag}: fetching page {page_num}...")
+        response = fetch_with_hard_timeout(url, hard_seconds=20)
+        if response is not None:
+            print(f"{tag}: page {page_num} status = {response.status_code}")
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, "html.parser")
+
+                products = soup.find_all("li", class_=lambda c: c and "grid-item" in c.split())
+
+                print(f"{tag}: page {page_num} found {len(products)} cards")
+                if len(products) == 0:
+                    print(f"{tag}: page {page_num} empty, reached the end")
+                    break
+
+                for product in products:
+                    price_tag = product.find(class_=lambda c: c and "price-item-regular" in c.split())
+                    if not price_tag:
+                        price_tag = product.find(class_=lambda c: c and "price-item" in c.split())
+                    price_text = price_tag.get_text(strip=True) if price_tag else None
+
+                    name = None
+                    product_link = product.find("a", href=re.compile(r"/products/"))
+                    if product_link:
+                        # Use only the link's own direct text, not text from
+                        # nested elements like the star-rating caption,
+                        # which would otherwise get concatenated in.
+                        direct_texts = [t.strip() for t in product_link.find_all(string=True, recursive=False) if t.strip()]
+                        if direct_texts:
+                            name = " ".join(direct_texts)
+                        elif product_link.get("href"):
+                            # Fall back to deriving a readable name from the URL slug
+                            # if the link itself has no usable direct text
+                            slug = product_link["href"].rstrip("/").rsplit("/", 1)[-1]
+                            name = slug.replace("-", " ").title()
+
+                    image_url = None
+                    img_tag = product.find("img")
+                    if img_tag:
+                        raw_image_url = img_tag.get("src") or img_tag.get("data-src")
+                        image_url = normalize_image_url(raw_image_url, url)
+
+                    product_url = resolve_link(product_link.get("href"), url) if product_link else None
+
+                    if name and price_text:
+                        price_value = extract_first_price(price_text)
+                        if price_value:
+                            all_results.append({
+                                "name": name,
+                                "price": price_value,
+                                "store": "3CHUB",
+                                "category": determine_category(name, category_label),
+                                "image_url": image_url,
+                                "product_url": product_url,
+                            })
+            else:
+                print(f"{tag}: page {page_num} not OK, stopping")
+                break
+        else:
+            print(f"{tag}: page {page_num} skipped (timeout), stopping")
+            break
+        page_num += 1
+        time.sleep(1.5)
+    print(f"{tag}: finished, total = {len([r for r in all_results if r['store']=='3CHUB' and r['category']==category_label])}")
 
 
 def scrape_phonemart_category(all_results, url_slug, category_label):
@@ -642,23 +854,29 @@ def scrape_phonemart_category(all_results, url_slug, category_label):
                     name = None
                     if name_tag:
                         name = name_tag.get_text(strip=True)
-                    if not name:
-                        # Fall back to the product page link's "title" attribute or text
-                        link_tag = product.find("a", class_="woocommerce-LoopProduct-link") or product.find("a", title=True)
-                        if link_tag and link_tag.get("title"):
-                            name = link_tag.get("title").strip()
+                    # Fall back to the product page link's "title" attribute or text
+                    link_tag = product.find("a", class_="woocommerce-LoopProduct-link") or product.find("a", title=True)
+                    if not name and link_tag and link_tag.get("title"):
+                        name = link_tag.get("title").strip()
                     price_text = price_tag.get_text(strip=True) if price_tag else None
+
+                    product_url = None
+                    any_link = link_tag or product.find("a", href=True)
+                    if any_link:
+                        product_url = resolve_link(any_link.get("href"), url)
 
                     image_url = None
                     img_tag = product.find("img")
                     if img_tag:
-                        image_url = (
+                        raw_image_url = (
                             img_tag.get("src")
                             or img_tag.get("data-src")
                             or img_tag.get("data-lazy-src")
                         )
-                        if image_url and image_url.startswith("data:image"):
-                            image_url = img_tag.get("data-src") or img_tag.get("data-lazy-src")
+                        if raw_image_url and raw_image_url.startswith("data:image"):
+                            raw_image_url = img_tag.get("data-src") or img_tag.get("data-lazy-src")
+                        image_url = normalize_image_url(raw_image_url, url)
+
 
                     if name and price_text and len(name) > 3:
                         price_value = extract_first_price(price_text)
@@ -669,6 +887,7 @@ def scrape_phonemart_category(all_results, url_slug, category_label):
                                 "store": "PhoneMart",
                                 "category": determine_category(name, category_label),
                                 "image_url": image_url,
+                                "product_url": product_url,
                             })
             else:
                 print(f"{tag}: page {page_num} not OK, stopping")
@@ -703,6 +922,17 @@ def run_scraper():
     scrape_phonemart_category(all_results, "laptops", "Laptops")
     scrape_phonemart_category(all_results, "accessories", "Accessories")
 
+    # 3CHUB (Shopify)
+    scrape_3chub_category(all_results, "mobile-phones", "Phones")
+    scrape_3chub_category(all_results, "acc", "Accessories")
+
+    # Tokka Hub (WoodMart theme, same selectors as PhoneMart)
+    scrape_tokkahub_category(all_results, "shop-with-tokka/mobile-phones-and-tablets-in-nigeria", "Phones")
+    scrape_tokkahub_category(all_results, "shop-with-tokka/buy-laptops-computers-in-nigeria", "Laptops")
+    scrape_tokkahub_category(all_results, "shop-with-tokka/accessories", "Accessories")
+    scrape_tokkahub_category(all_results, "shop-with-tokka/digital-gadgets/wearables/smartwatches", "Watches")
+    scrape_tokkahub_category(all_results, "shop-with-tokka/digital-gadgets/wearables/airpods-earbuds", "Audio")
+
     # ---------- SAVE ----------
     if all_results:
         seen = set()
@@ -717,11 +947,12 @@ def run_scraper():
 
         with open(CSV_FILE, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["Store", "Category", "Product", "Price (NGN)", "Date Checked", "Image URL"])
+            writer.writerow(["Store", "Category", "Product", "Price (NGN)", "Date Checked", "Image URL", "Product URL"])
             today = datetime.now().strftime("%Y-%m-%d %H:%M")
             for item in unique_results:
                 image_url = item.get("image_url") or item.get("image") or item.get("ImageUrl") or ""
-                writer.writerow([item["store"], item["category"], item["name"], item["price"], today, image_url])
+                product_url = item.get("product_url") or ""
+                writer.writerow([item["store"], item["category"], item["name"], item["price"], today, image_url, product_url])
 
         print(f"Scraper finished: saved {len(unique_results)} results to CSV")
 
