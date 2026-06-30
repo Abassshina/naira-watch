@@ -102,6 +102,22 @@
         .visit-store-btn.unavailable { background: #f0f2f5; color: #97a3b0; border: 1px solid #e3e8ee; cursor: not-allowed; pointer-events: none; }
         .visit-store-btn.unavailable:hover { background: #f0f2f5; transform: none; }
 
+        /* ---------- Availability badges ---------- */
+        .availability-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 12px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+        .availability-badge .dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; }
+        .availability-badge.status-in-stock { background: #eef9f6; color: #0d7c66; }
+        .availability-badge.status-in-stock .dot { background: #18b894; }
+        .availability-badge.status-out-of-stock { background: #fdeeee; color: #c0392b; }
+        .availability-badge.status-out-of-stock .dot { background: #e0473e; }
+        .availability-badge.status-pre-order { background: #fef3e2; color: #b45309; }
+        .availability-badge.status-pre-order .dot { background: #f59e0b; }
+        .availability-badge.status-coming-soon { background: #fefce8; color: #a16207; }
+        .availability-badge.status-coming-soon .dot { background: #eab308; }
+        .availability-badge.status-unknown { background: #f4f6f8; color: #6b7785; }
+        .availability-badge.status-unknown .dot { background: #97a3b0; }
+        .unavailable-notice { color: #97a3b0; font-size: 12px; font-weight: 700; font-style: italic; }
+        .stock-summary-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+
         /* ---------- Product cards (hover elevation) ---------- */
         .compare-card { background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; margin-bottom: 14px; overflow: hidden; transition: box-shadow 0.16s ease, transform 0.16s ease; }
         .compare-card:hover { box-shadow: 0 6px 18px rgba(15, 27, 45, 0.08); transform: translateY(-2px); }

@@ -15,7 +15,12 @@
                     <div class="detail-meta">
                         {{ product["Category"] }}{% if product["Brand"] != "Other" %} - {{ product["Brand"] }}{% endif %}
                     </div>
-                    {% if product_rows and product_rows[0].ProductUrl %}
+                    <div style="margin-top: 10px;">
+                        <span class="availability-badge {{ (product_rows[0].Availability if product_rows else 'Unknown')|availability_css }}" style="font-size:13px; padding:5px 12px;">
+                            <span class="dot"></span>{{ product_rows[0].Availability if product_rows else "Unknown" }}
+                        </span>
+                    </div>
+                    {% if not currently_unavailable and product_rows and product_rows[0].ProductUrl and product_rows[0].Availability == "In Stock" %}
                         <div style="margin-top: 14px;">
                             <a class="visit-store-btn" href="{{ product_rows[0].ProductUrl }}" target="_blank" rel="noopener noreferrer" aria-label="Visit {{ product_rows[0]['Store'] }} for the lowest price">
                                 Visit Store ({{ product_rows[0]['Store'] }})
@@ -31,19 +36,23 @@
             <div class="summary-card">
                 <div class="icon-row">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
-                    <span class="label">Current Price</span>
+                    <span class="label">{% if currently_unavailable %}Last Known Price{% else %}Current Lowest Price{% endif %}</span>
                 </div>
-                <div class="value lowest">{{ lowest_price|naira }}</div>
-                {% if price_change %}
-                    <div class="change-indicator {{ price_change.css_class }}">
-                        {% if price_change.direction == "down" %}
-                            &darr; {{ price_change.amount|naira }} since first recorded
-                        {% elif price_change.direction == "up" %}
-                            &uarr; {{ price_change.amount|naira }} since first recorded
-                        {% else %}
-                            No price change recorded
-                        {% endif %}
-                    </div>
+                {% if currently_unavailable %}
+                    <div class="value" style="color:#97a3b0;">Currently unavailable</div>
+                {% else %}
+                    <div class="value lowest">{{ lowest_price|naira }}</div>
+                    {% if price_change %}
+                        <div class="change-indicator {{ price_change.css_class }}">
+                            {% if price_change.direction == "down" %}
+                                &darr; {{ price_change.amount|naira }} since first recorded
+                            {% elif price_change.direction == "up" %}
+                                &uarr; {{ price_change.amount|naira }} since first recorded
+                            {% else %}
+                                No price change recorded
+                            {% endif %}
+                        </div>
+                    {% endif %}
                 {% endif %}
             </div>
             <div class="summary-card">
@@ -62,10 +71,13 @@
             </div>
             <div class="summary-card">
                 <div class="icon-row">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>
-                    <span class="label">Average Price</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>
+                    <span class="label">Availability</span>
                 </div>
-                <div class="value">{{ (price_stats.average_price if price_stats else average_price)|naira }}</div>
+                <div class="stock-summary-row">
+                    <span class="availability-badge status-in-stock"><span class="dot"></span>{{ stores_in_stock }} in stock</span>
+                    <span class="availability-badge status-out-of-stock"><span class="dot"></span>{{ stores_out_of_stock }} out of stock</span>
+                </div>
             </div>
         </div>
 
@@ -75,14 +87,16 @@
                 <th>Store</th>
                 <th>Product Name</th>
                 <th>Price</th>
+                <th>Availability</th>
                 <th>Last Checked</th>
                 <th>Actions</th>
             </tr>
             {% for row in product_rows %}
-                <tr class="{% if loop.first %}best{% endif %}">
+                <tr class="{% if row.Availability == 'In Stock' and row.PriceValue == lowest_price and not currently_unavailable %}best{% endif %}">
                     <td><span class="store-tag tag-{{ row['Store'] }}">{{ row["Store"] }}</span></td>
                     <td>{{ row["Product"] }}</td>
                     <td class="price">{{ row.PriceValue|naira }}</td>
+                    <td><span class="availability-badge {{ row.Availability|availability_css }}"><span class="dot"></span>{{ row.Availability }}</span></td>
                     <td>{{ row["Date Checked"] }}</td>
                     <td>
                         {% if row.ProductUrl %}

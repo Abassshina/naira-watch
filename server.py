@@ -52,6 +52,34 @@ def extract_first_price(price_text):
     return None
 
 
+VALID_AVAILABILITY_VALUES = ["In Stock", "Out of Stock", "Pre-order", "Coming Soon", "Unknown"]
+
+
+def normalize_availability(raw_text):
+    """
+    Normalizes any retailer's raw stock-status text/signal into exactly
+    one of: 'In Stock', 'Out of Stock', 'Pre-order', 'Coming Soon', 'Unknown'.
+    Checked in order of specificity - 'out of stock'/'sold out' must be
+    checked before generic 'available' substring matches, since some
+    sites phrase things like "Currently unavailable" vs "Available".
+    """
+    if not raw_text:
+        return "Unknown"
+
+    text = raw_text.strip().lower()
+
+    if any(phrase in text for phrase in ["coming soon", "notify me", "launching soon"]):
+        return "Coming Soon"
+    if any(phrase in text for phrase in ["pre-order", "preorder", "pre order"]):
+        return "Pre-order"
+    if any(phrase in text for phrase in ["out of stock", "sold out", "unavailable", "not available", "read more"]):
+        return "Out of Stock"
+    if any(phrase in text for phrase in ["in stock", "available", "add to cart", "select options", "buy now"]):
+        return "In Stock"
+
+    return "Unknown"
+
+
 # ---------- BRAND & MODEL GROUPING (tested against real product names) ----------
 
 ACCESSORY_SIGNALS = ["case", "cover", "pouch", "screen protector", "tempered glass", "charger",
@@ -109,6 +137,7 @@ def read_price_rows():
         row["PriceValue"] = parse_price(row.get("Price (NGN)", ""))
         row["ImageUrl"] = resolve_product_image_url(row)
         row["ProductUrl"] = str(row.get("Product URL") or "").strip()
+        row["Availability"] = normalize_availability(row.get("Availability"))
     return rows
 
 
@@ -134,7 +163,13 @@ def parse_price(value):
 
 
 def format_naira(value):
-    return f"₦{int(value):,}"
+    try:
+        amount = int(value)
+    except (TypeError, ValueError):
+        return "Price unavailable"
+    if amount <= 0:
+        return "Price unavailable"
+    return f"₦{amount:,}"
 
 
 def compute_price_change(current_price, first_price):
@@ -423,6 +458,27 @@ def group_products_by_match(items, name_field="Product", category_field="Categor
 app.jinja_env.filters["naira"] = format_naira
 
 
+def availability_css_class(value):
+    return "status-" + (value or "Unknown").lower().replace(" ", "-")
+
+
+AVAILABILITY_EMOJI = {
+    "In Stock": "🟢",
+    "Out of Stock": "🔴",
+    "Pre-order": "🟠",
+    "Coming Soon": "🟡",
+    "Unknown": "⚪",
+}
+
+
+def availability_emoji(value):
+    return AVAILABILITY_EMOJI.get(value, "⚪")
+
+
+app.jinja_env.filters["availability_css"] = availability_css_class
+app.jinja_env.filters["availability_emoji"] = availability_emoji
+
+
 def determine_category(name, page_category):
     """
     Returns the real category for a product, overriding the page's nominal
@@ -565,16 +621,28 @@ def scrape_justfones_category(all_results, url_slug, category_label):
                             raw_image_url = img_tag.get("data-src") or img_tag.get("data-lazy-src")
                         image_url = normalize_image_url(raw_image_url, url)
 
-                    if name and price_text:
-                        price_value = extract_first_price(price_text)
-                        if price_value:
+                    # Out-of-stock Justfones items show "Out of stock" text and
+                    # have no price/Add to Cart button at all. In-stock items
+                    # show a price and an "Add to Cart" button.
+                    card_text = product.get_text(" ", strip=True)
+                    if "out of stock" in card_text.lower():
+                        availability = "Out of Stock"
+                    elif price_text:
+                        availability = "In Stock"
+                    else:
+                        availability = "Unknown"
+
+                    if name and (price_text or availability == "Out of Stock"):
+                        price_value = extract_first_price(price_text) if price_text else 0
+                        if price_value or availability == "Out of Stock":
                             all_results.append({
                                 "name": name,
-                                "price": price_value,
+                                "price": price_value or 0,
                                 "store": "Justfones",
                                 "category": determine_category(name, category_label),
                                 "image_url": image_url,
                                 "product_url": product_url,
+                                "availability": availability,
                             })
             else:
                 print(f"{tag}: page {page_num} not OK, stopping")
@@ -632,6 +700,19 @@ def scrape_pointek_category(all_results, url_slug, category_label):
                     if any_product_link:
                         product_url = resolve_link(any_product_link.get("href"), url)
 
+                    # WooCommerce's add-to-cart button text is a reliable stock
+                    # signal: "Add to cart"/"Select options" means in stock,
+                    # "Read more" is WooCommerce's default out-of-stock button text.
+                    cart_button = product.find(class_=re.compile(r"add_to_cart_button|product_type_"))
+                    availability_text = cart_button.get_text(strip=True) if cart_button else None
+                    if not availability_text:
+                        card_text = product.get_text(" ", strip=True).lower()
+                        if "out of stock" in card_text:
+                            availability_text = "Out of Stock"
+                        elif "pre-order" in card_text or "preorder" in card_text:
+                            availability_text = "Pre-order"
+                    availability = normalize_availability(availability_text)
+
                     image_url = None
                     img_tag = product.find("img")
                     if img_tag:
@@ -655,6 +736,7 @@ def scrape_pointek_category(all_results, url_slug, category_label):
                                 "category": determine_category(name, category_label),
                                 "image_url": image_url,
                                 "product_url": product_url,
+                                "availability": availability,
                             })
             else:
                 print(f"{tag}: page {page_num} not OK, stopping")
@@ -677,6 +759,8 @@ def scrape_tokkahub_category(all_results, url_slug, category_label):
     print(f"{tag}: starting")
     page_num = 1
     max_safety_pages = 40
+    previous_page_fingerprint = None
+    consecutive_repeats = 0
     while page_num <= max_safety_pages:
         if page_num == 1:
             url = f"https://tokkahub.com/product-category/{url_slug}/"
@@ -684,6 +768,7 @@ def scrape_tokkahub_category(all_results, url_slug, category_label):
             url = f"https://tokkahub.com/product-category/{url_slug}/page/{page_num}/"
         print(f"{tag}: fetching page {page_num}...")
         response = fetch_with_hard_timeout(url, hard_seconds=20)
+        used_fallback = False
         if response is None and page_num > 1:
             # The /page/N/ path style redirect-loops on some WooCommerce
             # permalink configurations - fall back to the older
@@ -691,6 +776,7 @@ def scrape_tokkahub_category(all_results, url_slug, category_label):
             fallback_url = f"https://tokkahub.com/product-category/{url_slug}/?paged={page_num}"
             print(f"{tag}: retrying page {page_num} with ?paged= fallback...")
             response = fetch_with_hard_timeout(fallback_url, hard_seconds=20)
+            used_fallback = True
         if response is not None:
             print(f"{tag}: page {page_num} status = {response.status_code}")
             if response.status_code == 200:
@@ -700,6 +786,26 @@ def scrape_tokkahub_category(all_results, url_slug, category_label):
                 if len(products) == 0:
                     print(f"{tag}: page {page_num} empty, reached the end")
                     break
+
+                # The ?paged= fallback URL isn't always genuinely supported by
+                # every WooCommerce permalink setup - some sites silently
+                # re-serve page 1's content for every ?paged= value instead
+                # of erroring. Detect this by fingerprinting the page (first
+                # and last product names) and stopping once the SAME
+                # fingerprint repeats, rather than looping until the safety
+                # cap regardless of whether real new content is arriving.
+                page_fingerprint = (
+                    products[0].get_text(" ", strip=True)[:80],
+                    products[-1].get_text(" ", strip=True)[:80],
+                )
+                if used_fallback and page_fingerprint == previous_page_fingerprint:
+                    consecutive_repeats += 1
+                    print(f"{tag}: page {page_num} content identical to previous page (fallback not supported), stopping")
+                    break
+                else:
+                    consecutive_repeats = 0
+                previous_page_fingerprint = page_fingerprint
+
                 for product in products:
                     name_tag = product.find("h3") or product.find("h2")
                     price_tag = product.find(class_=re.compile(r"^(price|woocommerce-Price-amount)"))
@@ -715,6 +821,16 @@ def scrape_tokkahub_category(all_results, url_slug, category_label):
                     any_link = link_tag or product.find("a", href=True)
                     if any_link:
                         product_url = resolve_link(any_link.get("href"), url)
+
+                    cart_button = product.find(class_=re.compile(r"add_to_cart_button|product_type_"))
+                    availability_text = cart_button.get_text(strip=True) if cart_button else None
+                    if not availability_text:
+                        card_text = product.get_text(" ", strip=True).lower()
+                        if "sold out" in card_text or "out of stock" in card_text:
+                            availability_text = "Sold out"
+                        elif "pre-order" in card_text or "preorder" in card_text:
+                            availability_text = "Pre-order"
+                    availability = normalize_availability(availability_text)
 
                     image_url = None
                     img_tag = product.find("img")
@@ -734,6 +850,7 @@ def scrape_tokkahub_category(all_results, url_slug, category_label):
                                 "category": determine_category(name, category_label),
                                 "image_url": image_url,
                                 "product_url": product_url,
+                                "availability": availability,
                             })
             else:
                 print(f"{tag}: page {page_num} not OK, stopping")
@@ -803,6 +920,19 @@ def scrape_3chub_category(all_results, url_slug, category_label):
 
                     product_url = resolve_link(product_link.get("href"), url) if product_link else None
 
+                    # Shopify's standard signal: the add-to-cart/select-options
+                    # button text changes to "Sold out" when a product has no
+                    # available inventory.
+                    action_button = product.find(class_=re.compile(r"button|product-form__submit"))
+                    availability_text = action_button.get_text(strip=True) if action_button else None
+                    if not availability_text:
+                        card_text = product.get_text(" ", strip=True).lower()
+                        if "sold out" in card_text:
+                            availability_text = "Sold out"
+                        elif "pre-order" in card_text or "preorder" in card_text or "coming soon" in card_text:
+                            availability_text = "Pre-order" if "pre" in card_text else "Coming Soon"
+                    availability = normalize_availability(availability_text)
+
                     if name and price_text:
                         price_value = extract_first_price(price_text)
                         if price_value:
@@ -813,6 +943,7 @@ def scrape_3chub_category(all_results, url_slug, category_label):
                                 "category": determine_category(name, category_label),
                                 "image_url": image_url,
                                 "product_url": product_url,
+                                "availability": availability,
                             })
             else:
                 print(f"{tag}: page {page_num} not OK, stopping")
@@ -865,6 +996,16 @@ def scrape_phonemart_category(all_results, url_slug, category_label):
                     if any_link:
                         product_url = resolve_link(any_link.get("href"), url)
 
+                    cart_button = product.find(class_=re.compile(r"add_to_cart_button|product_type_"))
+                    availability_text = cart_button.get_text(strip=True) if cart_button else None
+                    if not availability_text:
+                        card_text = product.get_text(" ", strip=True).lower()
+                        if "sold out" in card_text or "out of stock" in card_text:
+                            availability_text = "Sold out"
+                        elif "pre-order" in card_text or "preorder" in card_text:
+                            availability_text = "Pre-order"
+                    availability = normalize_availability(availability_text)
+
                     image_url = None
                     img_tag = product.find("img")
                     if img_tag:
@@ -888,6 +1029,7 @@ def scrape_phonemart_category(all_results, url_slug, category_label):
                                 "category": determine_category(name, category_label),
                                 "image_url": image_url,
                                 "product_url": product_url,
+                                "availability": availability,
                             })
             else:
                 print(f"{tag}: page {page_num} not OK, stopping")
@@ -947,12 +1089,13 @@ def run_scraper():
 
         with open(CSV_FILE, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["Store", "Category", "Product", "Price (NGN)", "Date Checked", "Image URL", "Product URL"])
+            writer.writerow(["Store", "Category", "Product", "Price (NGN)", "Date Checked", "Image URL", "Product URL", "Availability"])
             today = datetime.now().strftime("%Y-%m-%d %H:%M")
             for item in unique_results:
                 image_url = item.get("image_url") or item.get("image") or item.get("ImageUrl") or ""
                 product_url = item.get("product_url") or ""
-                writer.writerow([item["store"], item["category"], item["name"], item["price"], today, image_url, product_url])
+                availability = item.get("availability") or "Unknown"
+                writer.writerow([item["store"], item["category"], item["name"], item["price"], today, image_url, product_url, availability])
 
         print(f"Scraper finished: saved {len(unique_results)} results to CSV")
 
@@ -971,9 +1114,9 @@ def run_scraper():
                     product_id=product_id,
                     store=item["store"],
                     product_name=item["name"],
-                    product_url="",
+                    product_url=item.get("product_url") or "",
                     price=item["price"],
-                    availability="In Stock",
+                    availability=item.get("availability") or "Unknown",
                     checked_at=now_str,
                 )
                 save_price_history(listing_id, item["price"], now_str, product_id=product_id, store=item["store"])
@@ -1035,12 +1178,18 @@ def home():
     selected_stores = request.args.getlist("store")
     selected_category = request.args.get("category", "").strip()
     selected_brand = request.args.get("brand", "").strip()
+    selected_availability = request.args.getlist("availability")
     view_mode = request.args.get("view", "list").strip()  # "list" or "compare"
 
     if not selected_stores:
         selected_stores = all_stores
 
+    if not selected_availability:
+        selected_availability = VALID_AVAILABILITY_VALUES
+
     filtered_rows = [r for r in rows if r["Store"] in selected_stores]
+
+    filtered_rows = [r for r in filtered_rows if r["Availability"] in selected_availability]
 
     if selected_category:
         filtered_rows = [r for r in filtered_rows if r["Category"] == selected_category]
@@ -1084,6 +1233,12 @@ def home():
         br = brand if brand is not None else selected_brand
         if br:
             params.append(f"brand={br}")
+        # Only include availability params when the user has actively
+        # narrowed the filter - if all values are selected (the default),
+        # omit it entirely to keep URLs clean.
+        if set(selected_availability) != set(VALID_AVAILABILITY_VALUES):
+            for av in selected_availability:
+                params.append(f"availability={av}")
         v = view if view is not None else view_mode
         if v and v != "list":
             params.append(f"view={v}")
@@ -1104,21 +1259,37 @@ def home():
             if len(stores_in_group) >= 2:
                 items_sorted = sorted(items, key=lambda x: int(x["Price (NGN)"]))
                 prices = [int(item["Price (NGN)"]) for item in items_sorted]
-                lowest_price = prices[0]
-                highest_price = prices[-1]
-                average_price = sum(prices) // len(prices)
-                savings = highest_price - lowest_price
+                highest_price = max(prices) if prices else 0
+                average_price = sum(prices) // len(prices) if prices else 0
+
+                # "Best Price" only applies to In Stock items - an Out of
+                # Stock listing should never win the badge just because it
+                # happens to have the lowest (possibly stale/placeholder) price.
+                in_stock_items = [item for item in items_sorted if item["Availability"] == "In Stock"]
+                if in_stock_items:
+                    best_price = min(int(item["Price (NGN)"]) for item in in_stock_items)
+                    any_in_stock = True
+                else:
+                    best_price = min(prices) if prices else 0
+                    any_in_stock = False
+
+                savings = highest_price - best_price if any_in_stock else 0
+
                 comparison_groups.append({
                     "display_name": items_sorted[0]["Product"],
                     "product_slug": items_sorted[0]["ProductSlug"],
                     "items": items_sorted,
-                    "best_price": lowest_price,
+                    "best_price": best_price,
                     "highest_price": highest_price,
                     "average_price": average_price,
                     "savings": savings,
                     "store_count": len(stores_in_group),
+                    "any_in_stock": any_in_stock,
                 })
-        comparison_groups.sort(key=lambda g: g["best_price"])
+        # Groups with at least one in-stock item sort by their real best
+        # price; fully-unavailable groups sort to the end, since their
+        # "lowest price" isn't a genuine deal worth surfacing first.
+        comparison_groups.sort(key=lambda g: (not g["any_in_stock"], g["best_price"]))
 
     category_counts = {
         category: len([r for r in rows if r["Category"] == category and r["Store"] in selected_stores])
@@ -1131,9 +1302,11 @@ def home():
         all_stores=all_stores,
         all_categories=all_categories,
         all_brands=all_brands,
+        all_availability_values=VALID_AVAILABILITY_VALUES,
         selected_stores=selected_stores,
         selected_category=selected_category,
         selected_brand=selected_brand,
+        selected_availability=selected_availability,
         search_query=search_query,
         max_price=max_price,
         view_mode=view_mode,
@@ -1172,14 +1345,29 @@ def product_details(product_slug):
         ]
 
     product_rows = sorted(product_rows, key=lambda row: row["PriceValue"])
-    prices = [row["PriceValue"] for row in product_rows if row["PriceValue"] > 0]
 
-    if not prices:
+    # "Best Price" stats should only reflect In Stock listings - an Out of
+    # Stock item's price (real or placeholder) shouldn't be presented as
+    # the current lowest price a shopper can actually buy at.
+    in_stock_rows = [row for row in product_rows if row["Availability"] == "In Stock"]
+    stores_in_stock = len(set(row["Store"] for row in in_stock_rows))
+    stores_out_of_stock = len(set(row["Store"] for row in product_rows if row["Availability"] != "In Stock"))
+
+    if in_stock_rows:
+        prices = [row["PriceValue"] for row in in_stock_rows if row["PriceValue"] > 0]
+    else:
+        # Nothing is in stock anywhere - fall back to whatever real prices
+        # exist (if any) just so the page has something to display, but
+        # the template shows "Currently unavailable" instead of a deal badge.
+        prices = [row["PriceValue"] for row in product_rows if row["PriceValue"] > 0]
+
+    if not prices and not product_rows:
         abort(404)
 
-    lowest_price = min(prices)
-    highest_price = max(prices)
-    average_price = round(sum(prices) / len(prices))
+    lowest_price = min(prices) if prices else 0
+    highest_price = max(prices) if prices else 0
+    average_price = round(sum(prices) / len(prices)) if prices else 0
+    currently_unavailable = not in_stock_rows
     last_updated = max((row["Date Checked"] for row in product_rows if row.get("Date Checked")), default="Not available")
 
     # ---------- PHASE 3: PRICE INTELLIGENCE ----------
@@ -1211,6 +1399,9 @@ def product_details(product_slug):
         lowest_price=lowest_price,
         highest_price=highest_price,
         average_price=average_price,
+        stores_in_stock=stores_in_stock,
+        stores_out_of_stock=stores_out_of_stock,
+        currently_unavailable=currently_unavailable,
         last_updated=last_updated,
         price_stats=price_stats,
         price_history=price_history,

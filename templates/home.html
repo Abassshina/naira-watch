@@ -47,6 +47,26 @@
                 {% endfor %}
             </div>
         </details>
+
+        <details class="sidebar-section">
+            <summary>Availability <span class="chevron">&#9656;</span></summary>
+            <div class="sidebar-section-body">
+                <form method="get" action="{{ url_for('home') }}" id="availabilityFilterForm">
+                    <input type="hidden" name="category" value="{{ selected_category }}">
+                    <input type="hidden" name="brand" value="{{ selected_brand }}">
+                    <input type="hidden" name="view" value="{{ view_mode }}">
+                    <input type="hidden" name="search" value="{{ search_query }}">
+                    <input type="hidden" name="max_price" value="{{ max_price }}">
+                    {% for store in selected_stores %}<input type="hidden" name="store" value="{{ store }}">{% endfor %}
+                    {% for value in all_availability_values %}
+                        <label class="sidebar-check-row">
+                            <input type="checkbox" name="availability" value="{{ value }}" onchange="document.getElementById('availabilityFilterForm').submit()" {% if value in selected_availability %}checked{% endif %}>
+                            {{ value|availability_emoji }} {{ value }}
+                        </label>
+                    {% endfor %}
+                </form>
+            </div>
+        </details>
     </aside>
 
     <div class="sidebar-backdrop" onclick="document.getElementById('sidebarPanel').classList.remove('open'); this.classList.remove('visible');"></div>
@@ -86,7 +106,7 @@
                         </div>
                         <div class="compare-stats">
                             <div class="stat-box">
-                                <span class="stat-label">Lowest</span>
+                                <span class="stat-label">{% if group.any_in_stock %}Lowest{% else %}Last Known{% endif %}</span>
                                 <span class="stat-value lowest">{{ group.best_price|naira }}</span>
                             </div>
                             <div class="stat-box">
@@ -97,17 +117,20 @@
                                 <span class="stat-label">Highest</span>
                                 <span class="stat-value">{{ group.highest_price|naira }}</span>
                             </div>
-                            {% if group.savings > 0 %}
+                            {% if not group.any_in_stock %}
+                                <span class="unavailable-notice">Currently unavailable</span>
+                            {% elif group.savings > 0 %}
                                 <span class="stat-pill savings">Save up to {{ group.savings|naira }} by comparing</span>
                             {% endif %}
                         </div>
                         {% for item in group["items"] %}
-                            <div class="compare-row {% if loop.first %}cheapest{% endif %}">
+                            <div class="compare-row {% if group.any_in_stock and item.Availability == 'In Stock' and item.PriceValue == group.best_price %}cheapest{% endif %}">
                                 <div class="left">
                                     <span class="store-tag tag-{{ item['Store'] }}">{{ item["Store"] }}</span>
                                     <img class="compare-thumb" src="{{ item.ImageUrl }}" alt="" loading="lazy">
                                     <a class="product-name product-link" href="{{ url_for('product_details', product_slug=item.ProductSlug) }}">{{ item["Product"] }}</a>
-                                    {% if loop.first %}<span class="compare-badge">BEST PRICE</span>{% endif %}
+                                    <span class="availability-badge {{ item.Availability|availability_css }}"><span class="dot"></span>{{ item.Availability }}</span>
+                                    {% if group.any_in_stock and item.Availability == 'In Stock' and item.PriceValue == group.best_price %}<span class="compare-badge">BEST PRICE</span>{% endif %}
                                 </div>
                                 <div class="right">
                                     <span class="price">{{ item.PriceValue|naira }}</span>
@@ -144,6 +167,7 @@
                                     <div class="product-copy">
                                         <a class="product-link" href="{{ url_for('product_details', product_slug=row.ProductSlug) }}">{{ row["Product"] }}</a>
                                         <span class="product-category">{{ row["Category"] }}</span>
+                                        <span class="availability-badge {{ row.Availability|availability_css }}"><span class="dot"></span>{{ row.Availability }}</span>
                                     </div>
                                 </div>
                             </td>
